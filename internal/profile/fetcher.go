@@ -1,0 +1,66 @@
+package profile
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+)
+
+// Fetcher retrieves the raw bytes of a pprof profile from a Source.
+// The returned slice is in the binary protobuf format the runtime
+// emits (typically gzip-compressed for CPU/heap, plain for the
+// goroutine text endpoint — google/pprof handles both).
+type Fetcher interface {
+	Fetch(ctx context.Context, src Source) ([]byte, error)
+}
+
+// HTTPFetcher is the default Fetcher: it issues a single GET to the
+// constructed URL and returns the response body. The fetcher does
+// not impose its own timeout — callers should pass a context with
+// a deadline that comfortably exceeds CPU Source.Seconds.
+type HTTPFetcher struct {
+	Client *http.Client
+}
+
+// NewHTTPFetcher returns an HTTPFetcher with a client that imposes
+// no overall, response-header, or idle timeouts of its own. The Go
+// runtime's /debug/pprof/profile handler does not flush response
+// headers until the sample window is nearly over — any client-side
+// header timeout will fire before the server replies. Lifetime is
+// instead controlled entirely by the caller's context.
+func NewHTTPFetcher() *HTTPFetcher {
+	return &HTTPFetcher{Client: &http.Client{}}
+}
+
+// Fetch implements Fetcher.
+func (f *HTTPFetcher) Fetch(ctx context.Context, src Source) ([]byte, error) {
+	u, err := src.URL()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	client := f.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s: %w", u, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch %s: status %d", u, resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if len(body) == 0 {
+		return nil, fmt.Errorf("fetch %s: empty body", u)
+	}
+	return body, nil
+}

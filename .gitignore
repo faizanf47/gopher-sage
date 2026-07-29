@@ -1,0 +1,5 @@
+bin/
+.claude/
+*.prof
+*.test
+.DS_Store
