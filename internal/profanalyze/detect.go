@@ -11,6 +11,7 @@ import (
 // Severity grades how impactful a finding is.
 type Severity string
 
+// Severity levels, from a minor observation to a dominant cost.
 const (
 	SeverityLow    Severity = "low"
 	SeverityMedium Severity = "medium"
@@ -23,6 +24,8 @@ const (
 // ConfidenceLow so the reader treats it as a lead, not a verdict.
 type Confidence string
 
+// Confidence levels, from a lead worth checking to a near-certain
+// diagnosis.
 const (
 	ConfidenceLow    Confidence = "low"
 	ConfidenceMedium Confidence = "medium"
@@ -34,6 +37,7 @@ const (
 // against a CPU profile and vice versa.
 type Scope string
 
+// The profile kinds the detector set covers.
 const (
 	ScopeCPU  Scope = "cpu"
 	ScopeHeap Scope = "heap"

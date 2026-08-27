@@ -17,6 +17,7 @@ import (
 // so they double as human-friendly identifiers.
 type Type string
 
+// The profile types the standard net/http/pprof handler serves.
 const (
 	TypeCPU          Type = "cpu"
 	TypeHeap         Type = "heap"

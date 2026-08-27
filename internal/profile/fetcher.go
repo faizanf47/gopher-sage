@@ -8,11 +8,13 @@ import (
 )
 
 // Fetcher retrieves the raw bytes of a pprof profile from a Source.
-// The returned slice is in the binary protobuf format. 
+// The returned slice is in the binary protobuf format.
 type Fetcher interface {
 	Fetch(ctx context.Context, src Source) ([]byte, error)
 }
 
+// HTTPFetcher fetches profiles over HTTP from a net/http/pprof
+// endpoint. A nil Client falls back to http.DefaultClient.
 type HTTPFetcher struct {
 	Client *http.Client
 }

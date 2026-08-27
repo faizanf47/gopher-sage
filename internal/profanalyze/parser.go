@@ -35,13 +35,18 @@ const (
 	// SampleCPU selects the CPU sample type. Some Go CPU profiles
 	// expose it as "cpu" (nanoseconds), others as "samples" (count) —
 	// the loader accepts either alias.
-	SampleCPU     SampleIndex = "cpu"
+	SampleCPU SampleIndex = "cpu"
+	// SampleSamples is the count-based alias of SampleCPU.
 	SampleSamples SampleIndex = "samples"
 
-	// Heap-profile sample types. A heap profile carries all four.
-	SampleInuseSpace   SampleIndex = "inuse_space"
+	// SampleInuseSpace selects live heap bytes. A heap profile
+	// carries this and the three sample types below.
+	SampleInuseSpace SampleIndex = "inuse_space"
+	// SampleInuseObjects selects live heap object counts.
 	SampleInuseObjects SampleIndex = "inuse_objects"
-	SampleAllocSpace   SampleIndex = "alloc_space"
+	// SampleAllocSpace selects cumulative allocated bytes.
+	SampleAllocSpace SampleIndex = "alloc_space"
+	// SampleAllocObjects selects cumulative allocated object counts.
 	SampleAllocObjects SampleIndex = "alloc_objects"
 )
 

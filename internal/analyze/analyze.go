@@ -36,7 +36,7 @@ type Options struct {
 	// e.g. "http://localhost:6060" or
 	// "http://localhost:6060/debug/pprof/".
 	Server string
-	// Profiles to capture and analyze. 
+	// Profiles to capture and analyze.
 	Types []profile.Type
 	// CPU sample window. Zero means "use the server
 	// default" (30s in the standard runtime handler).

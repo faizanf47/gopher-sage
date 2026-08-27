@@ -53,6 +53,7 @@ type TopReport struct {
 // SortBy controls which column TopReport.Entries is ranked by.
 type SortBy string
 
+// The rankings Top supports: self-time only, or self plus callees.
 const (
 	SortByFlat SortBy = "flat"
 	SortByCum  SortBy = "cum"
