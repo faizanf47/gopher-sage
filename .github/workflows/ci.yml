@@ -10,6 +10,26 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.8.0
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:
@@ -25,8 +45,14 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests
-        run: go test ./...
+      - name: Run tests (race detector + coverage)
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -1
 
       - name: Build
         run: make build
+
+      - name: Build leaky-server fixture
+        run: go build -C fixtures/sources/leaky_server -o /tmp/leaky_server .

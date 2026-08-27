@@ -6,7 +6,7 @@ A deterministic CLI that profiles a running Go service over `net/http/pprof` and
 
 ## What it does
 
-Point it at a server's pprof endpoint. It captures the requested profiles (CPU and/or heap), parses them, runs a fixed set of pattern detectors, and prints the findings ordered by severity and share of profile:
+Point it at a server's pprof endpoint — or at saved profile files with `-file` — and it parses the profiles (CPU and/or heap), runs a fixed set of pattern detectors, and prints the findings ordered by severity and share of profile:
 
 ```
 $ gopher-sage -server http://localhost:6060
@@ -33,7 +33,7 @@ heap profile (34620 bytes; sample types: alloc_objects, alloc_space, inuse_objec
 
 Each finding cites the detector that fired, the sample type it inspected, its share of the profile, the symbols involved, and a canonical remediation pattern. Confidence is graded honestly: a CPU profile alone cannot *prove* lock contention, so that detector reports a low-confidence lead rather than a verdict.
 
-Pass `-json` to get the same report as structured JSON for scripting or dashboards.
+Pass `-json` to get the same report as structured JSON for scripting or dashboards, and `-top N` to include a pprof-style top-N function table alongside each profile's findings.
 
 ## Design at a glance
 
@@ -56,12 +56,12 @@ Adding a detector: create one file implementing `Detector` (a `Meta() Metadata` 
 
 ## Quick start
 
-### 1. Build
+### 1. Install or build
 
 ```sh
-go build -o bin/gopher-sage ./cmd/gopher-sage
-# or
-make build
+go install github.com/faizanf47/gopher-sage/cmd/gopher-sage@latest
+# or, from a checkout:
+make build   # produces bin/gopher-sage
 ```
 
 ### 2. Run it against a server with pprof enabled
@@ -72,16 +72,27 @@ make build
 
 The target only needs the standard `net/http/pprof` handler mounted. A CPU capture blocks for the whole sample window (30s by default), then the heap capture returns promptly.
 
+### Or analyze saved profiles
+
+```sh
+./bin/gopher-sage -file cpu.pb.gz,heap.pb.gz -top 5
+```
+
+`-file` takes profiles captured earlier (a production grab, a CI artifact) and infers each file's kind from the sample types it carries — no `-type` needed.
+
 ### Flags
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `-server` | — | Base URL of the pprof endpoint (required). `http://host:6060` and `http://host:6060/debug/pprof/` both work |
-| `-type` | `cpu,heap` | Comma-separated profile types to capture and analyze |
+| `-server` | — | Base URL of the pprof endpoint. `http://host:6060` and `http://host:6060/debug/pprof/` both work |
+| `-file` | — | Comma-separated saved pprof files to analyze instead of a live server (mutually exclusive with `-server`) |
+| `-type` | `cpu,heap` | Comma-separated profile types to capture from `-server` |
 | `-seconds` | `30` | CPU sample window; `0` uses the server default |
 | `-min-share` | `0` | Drop findings below this share-of-profile percent (detectors already apply a 3% noise floor) |
+| `-top` | `0` | Include the top-N functions by cumulative value alongside each profile's findings |
 | `-json` | `false` | Emit the report (or catalog) as JSON instead of text |
 | `-detectors` | `false` | List the registered detectors — ID, what each checks, how it works, its limitations — and exit |
+| `-version` | `false` | Print the version (module version + VCS revision) and exit |
 | `-v` | `false` | Verbose logging |
 
 ### Try it against the bundled "leaky server"
@@ -117,11 +128,20 @@ fixtures/
 
 ```sh
 go test ./...           # unit tests (deterministic — no network)
+go test -race ./...     # same suite under the race detector
+golangci-lint run       # curated linter set (see .golangci.yml)
 make build              # build the CLI
 make leaky-server-start # demo target
 ```
 
-CI runs `go test ./...` and `make build` against Go 1.25 on every push and PR.
+The parser is fuzzed end to end (arbitrary bytes → parse → detectors → top) and the hot paths are benchmarked against the captured fixtures:
+
+```sh
+go test -fuzz=FuzzParseBytes -fuzztime=30s ./internal/profanalyze
+go test -bench=. -benchmem -run '^$' ./internal/profanalyze
+```
+
+CI runs vet, golangci-lint, the test suite under `-race` with coverage, and both builds against Go 1.25 on every push and PR.
 
 ## License
 
