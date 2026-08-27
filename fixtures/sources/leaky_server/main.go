@@ -1,17 +1,20 @@
-// leaky_server is a deliberately terrible Go program.
-// It exists solely as an Astora test fixture — every function
-// contains at least one performance anti-pattern.
+// leaky_server is a deliberately terrible Go program. It exists
+// solely as a gopher-sage demo fixture — every function contains at
+// least one performance anti-pattern for the detectors to find.
 //
 // Anti-patterns included:
-//   - goroutine leak (no context cancellation)
+//   - goroutine leak (workers block forever on a channel nobody closes)
 //   - unbounded cache growth (memory leak)
 //   - string concatenation in a hot loop (excessive allocation)
-//   - global mutex protecting a hot path
+//   - global mutex held across expensive work on the hot path
 //   - regexp compilation inside a loop
 //   - fmt.Sprintf in a tight loop instead of strconv
 //   - channel send without select/timeout (blocking)
 //   - unnecessary reflect usage
 //   - slice append without pre-allocation
+//
+// Do NOT fix this file. If a linter or reviewer flags it, that means
+// it is working.
 package main
 
 import (
@@ -21,77 +24,73 @@ import (
 	_ "net/http/pprof"
 	"reflect"
 	"regexp"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
 
 // ---------------------------------------------------------------------------
-// Memory leak: unbounded global cache that is never evicted.
+// Memory leak: unbounded global cache that is never evicted, guarded
+// by a single global mutex that is also held across expensive work.
 // ---------------------------------------------------------------------------
-
-// itemSanitizer is compiled once at program start and reused on every call to
-// processItems, avoiding 50 regexp compilations per request.
-var itemSanitizer = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
 var (
 	cacheMu sync.Mutex
 	cache   = make(map[string][]byte)
 )
 
-func cacheSet(key string, val []byte) {
+// cacheSet stores the payload AND recomputes the total cached bytes
+// while holding the global lock — an O(len(cache)) scan under a
+// mutex on the hot path, so contention grows as the cache leaks.
+func cacheSet(key string, val []byte) (entries, totalBytes int) {
 	cacheMu.Lock()
 	defer cacheMu.Unlock()
 	cache[key] = val
-}
-
-func cacheGet(key string) ([]byte, bool) {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	v, ok := cache[key]
-	return v, ok
+	for _, v := range cache {
+		totalBytes += len(v)
+	}
+	return len(cache), totalBytes
 }
 
 // ---------------------------------------------------------------------------
-// Goroutine leak: spawns workers that never exit because there is no
-// cancellation signal or done channel.
+// Goroutine leak: spawns workers that never exit because nothing
+// ever closes or sends on their channel.
 // ---------------------------------------------------------------------------
 
-func leakyWorker(id int) {
+func leakyWorker() {
 	ch := make(chan struct{})
-	// BUG: nothing ever closes ch, so this goroutine lives forever.
-	close(ch)
-	_ = id
+	// BUG: nothing ever closes or sends on ch, so this goroutine
+	// blocks here forever.
+	<-ch
 }
 
 func spawnLeakyWorkers(n int) {
 	for i := 0; i < n; i++ {
-		go leakyWorker(i)
+		go leakyWorker()
 	}
 }
 
 // ---------------------------------------------------------------------------
-// CPU hot path: builds strings via concatenation (O(n²) allocations),
-// compiles a regexp on every call, and uses fmt.Sprintf for int→string.
+// CPU hot path: compiles a regexp on every loop iteration, builds the
+// result via string concatenation (O(n²) allocations), and uses
+// fmt.Sprintf for int→string instead of strconv.
 // ---------------------------------------------------------------------------
 
 func processItems(items []string) string {
-	var sb strings.Builder
-	sb.Grow(len(items) * 16) // pre-allocate a reasonable estimate
+	result := ""
 	for i, item := range items {
-		cleaned := itemSanitizer.ReplaceAllString(item, "")
-		sb.WriteString(strconv.Itoa(i))
-		sb.WriteByte(':')
-		sb.WriteString(cleaned)
-		sb.WriteByte(',')
+		// BAD: compiled once per iteration instead of once per process.
+		sanitizer := regexp.MustCompile(`[^a-zA-Z0-9]`)
+		cleaned := sanitizer.ReplaceAllString(item, "")
+		// BAD: += reallocates the whole string every iteration, and
+		// Sprintf is a slow way to format an int.
+		result += fmt.Sprintf("%d:%s,", i, cleaned)
 	}
-	return sb.String()
+	return result
 }
 
 // ---------------------------------------------------------------------------
-// Reflect abuse: uses reflect to sum an int slice instead of a type switch
-// or generics.
+// Reflect abuse: uses reflect to sum an int slice instead of a type
+// switch or generics.
 // ---------------------------------------------------------------------------
 
 func reflectSum(data interface{}) int64 {
@@ -105,11 +104,11 @@ func reflectSum(data interface{}) int64 {
 
 // ---------------------------------------------------------------------------
 // Allocation-heavy: builds a large slice one append at a time with no
-// capacity hint, then copies it into the cache.
+// capacity hint.
 // ---------------------------------------------------------------------------
 
 func buildPayload(n int) []byte {
-	// BAD: no pre-allocation
+	// BAD: no pre-allocation, so append regrows the slice repeatedly.
 	var buf []byte
 	for i := 0; i < n; i++ {
 		buf = append(buf, byte(rand.Intn(256)))
@@ -118,18 +117,41 @@ func buildPayload(n int) []byte {
 }
 
 // ---------------------------------------------------------------------------
-// Handler: every request leaks a goroutine, writes to the unbounded cache,
-// runs the CPU-heavy processItems, and does a reflect sum.
+// Blocking channel sender: sends without select/default, so it blocks
+// when the buffer is full. The handler fires it in a goroutine, so
+// blocked sends pile up as extra live goroutines under load.
+// ---------------------------------------------------------------------------
+
+var metricsCh = make(chan int, 10)
+
+func emitMetric(val int) {
+	// BAD: blocks when the buffer is full; no select with default.
+	metricsCh <- val
+}
+
+func metricsDrain() {
+	for range metricsCh {
+		// BAD: drains far slower than the handler emits.
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Handler: every request leaks goroutines, writes to the unbounded
+// cache under the global lock, runs the CPU-heavy processItems, and
+// does a pointless reflect sum.
 // ---------------------------------------------------------------------------
 
 func handleWork(w http.ResponseWriter, r *http.Request) {
-	// Leak a goroutine on every request.
+	// Leak goroutines on every request.
 	spawnLeakyWorkers(2)
+	go emitMetric(rand.Intn(1000))
 
-	// Build a large payload and cache it with a unique key.
+	// Build a large payload and cache it under a unique key, holding
+	// the global mutex across an O(cache) scan.
 	payload := buildPayload(64 * 1024) // 64 KiB
 	key := fmt.Sprintf("req-%d", time.Now().UnixNano())
-	cacheSet(key, payload)
+	entries, cachedBytes := cacheSet(key, payload)
 
 	// CPU-bound string processing.
 	items := make([]string, 50)
@@ -145,25 +167,7 @@ func handleWork(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = reflectSum(nums)
 
-	fmt.Fprintf(w, "ok (cache size: %d)\n", len(cache))
-}
-
-// ---------------------------------------------------------------------------
-// Blocking channel sender: sends without select, so it blocks when the
-// buffer is full.
-// ---------------------------------------------------------------------------
-
-var metricsCh = make(chan int, 10)
-
-func emitMetric(val int) {
-	// BAD: blocks when buffer full; no select with default.
-	metricsCh <- val
-}
-
-func metricsDrain() {
-	for range metricsCh {
-		// discard
-	}
+	fmt.Fprintf(w, "ok (cache entries: %d, cached bytes: %d)\n", entries, cachedBytes)
 }
 
 func main() {
