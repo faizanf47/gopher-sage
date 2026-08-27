@@ -64,7 +64,8 @@ func Load(path string) (*Profile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("profanalyze: open %q: %w", path, err)
 	}
-	defer f.Close()
+	// The file is read-only, so a close error carries no signal.
+	defer func() { _ = f.Close() }()
 
 	raw, err := pp.Parse(f)
 	if err != nil {

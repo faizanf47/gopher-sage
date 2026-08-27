@@ -25,8 +25,13 @@ func NewHTTPFetcher() *HTTPFetcher {
 	return &HTTPFetcher{Client: &http.Client{}}
 }
 
+// maxProfileBytes caps how much of a response Fetch reads. Real
+// pprof profiles run from kilobytes to a few megabytes; the cap only
+// exists so a misbehaving or hostile endpoint cannot exhaust memory.
+const maxProfileBytes = 128 << 20 // 128 MiB
+
 // Fetch implements Fetcher.
-func (f *HTTPFetcher) Fetch(ctx context.Context, src Source) ([]byte, error) {
+func (f *HTTPFetcher) Fetch(ctx context.Context, src Source) (raw []byte, err error) {
 	u, err := src.URL()
 	if err != nil {
 		return nil, err
@@ -43,13 +48,20 @@ func (f *HTTPFetcher) Fetch(ctx context.Context, src Source) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", u, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close response body: %w", cerr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch %s: status %d", u, resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxProfileBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if len(body) > maxProfileBytes {
+		return nil, fmt.Errorf("fetch %s: response exceeds %d-byte profile cap", u, maxProfileBytes)
 	}
 	if len(body) == 0 {
 		return nil, fmt.Errorf("fetch %s: empty body", u)

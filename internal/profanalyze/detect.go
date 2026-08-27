@@ -2,6 +2,8 @@ package profanalyze
 
 import (
 	"fmt"
+	"math"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -240,10 +242,8 @@ func buildContext(p *Profile) (ctx DetectCtx, haveCPU, haveHeap bool, err error)
 // classify a profile.
 func hasSampleType(p *Profile, names ...string) bool {
 	for _, st := range p.Raw.SampleType {
-		for _, n := range names {
-			if st.Type == n {
-				return true
-			}
+		if slices.Contains(names, st.Type) {
+			return true
 		}
 	}
 	return false
@@ -353,54 +353,42 @@ func makeFinding(meta Metadata, view View, title, evidence, recommendation strin
 	}
 }
 
-// topFlatFrames returns the top-n frames by flat value, dropping
-// any whose flat share is below minShare. Used by the generic
-// high-alloc / high-inuse detectors to attribute a hotspot to a
-// small, named set of functions rather than a blob share.
+// topFlatFrames returns the top-n frames by flat value (ties broken
+// by name so equal frames order deterministically), dropping any
+// whose flat share is below minShare. Used by the generic high-alloc
+// / high-inuse detectors to attribute a hotspot to a small, named
+// set of functions rather than a blob share.
 func topFlatFrames(v View, n int, minShare float64) []struct {
 	name string
 	flat int64
 } {
-	type pair struct {
+	pairs := make([]struct {
 		name string
 		flat int64
-	}
-	pairs := make([]pair, 0, len(v.FlatByFn))
+	}, 0, len(v.FlatByFn))
 	for name, flat := range v.FlatByFn {
 		if percentOf(flat, v.Total) < minShare {
 			continue
 		}
-		pairs = append(pairs, pair{name, flat})
-	}
-	// Selection sort top-n; n is tiny (<=5) so this stays cheap and
-	// avoids importing sort just for this.
-	for i := 0; i < n && i < len(pairs); i++ {
-		max := i
-		for j := i + 1; j < len(pairs); j++ {
-			if pairs[j].flat > pairs[max].flat {
-				max = j
-			}
-		}
-		pairs[i], pairs[max] = pairs[max], pairs[i]
-	}
-	if n > len(pairs) {
-		n = len(pairs)
-	}
-	out := make([]struct {
-		name string
-		flat int64
-	}, n)
-	for i := 0; i < n; i++ {
-		out[i] = struct {
+		pairs = append(pairs, struct {
 			name string
 			flat int64
-		}{pairs[i].name, pairs[i].flat}
+		}{name, flat})
 	}
-	return out
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].flat != pairs[j].flat {
+			return pairs[i].flat > pairs[j].flat
+		}
+		return pairs[i].name < pairs[j].name
+	})
+	if n < len(pairs) {
+		pairs = pairs[:n]
+	}
+	return pairs
 }
 
 func roundPerc(p float64) float64 {
 	// Two decimal places of precision in the JSON output is plenty
 	// for human review and keeps test expectations stable.
-	return float64(int(p*100+0.5)) / 100
+	return math.Round(p*100) / 100
 }

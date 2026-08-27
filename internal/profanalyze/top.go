@@ -151,6 +151,10 @@ type fnAgg struct {
 // flat counts only the leaf frame of a sample; cum counts every
 // function on the stack once per sample, even when recursion or
 // inlining stacked it multiple times.
+//
+// Locations with no line information (unsymbolized frames, which Go
+// runtime profiles never produce but hand-built or foreign profiles
+// can) contribute to the total yet appear under no function.
 func aggregateSamples(p *pp.Profile, idx int, collectStacks bool) (byFn map[string]*fnAgg, total int64, stacks []SampleStack) {
 	byFn = make(map[string]*fnAgg)
 	for _, s := range p.Sample {

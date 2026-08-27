@@ -1,6 +1,9 @@
 package profanalyze
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 func init() { MustRegister(heapRetentionHotspotDetector{}) }
 
@@ -69,14 +72,14 @@ func (d heapRetentionHotspotDetector) Detect(ctx DetectCtx) []Finding {
 	if len(cands) == 0 {
 		return nil
 	}
-	// Order by retention share so the most-suspect candidates lead.
-	for i := 0; i < len(cands); i++ {
-		for j := i + 1; j < len(cands); j++ {
-			if cands[j].inuseShare > cands[i].inuseShare {
-				cands[i], cands[j] = cands[j], cands[i]
-			}
+	// Order by retention share so the most-suspect candidates lead;
+	// ties break by name for deterministic output.
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].inuseShare != cands[j].inuseShare {
+			return cands[i].inuseShare > cands[j].inuseShare
 		}
-	}
+		return cands[i].name < cands[j].name
+	})
 	var names []string
 	var share float64
 	for _, c := range cands {

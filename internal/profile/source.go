@@ -1,8 +1,13 @@
+// Package profile identifies and fetches Go pprof profiles from a
+// running server's net/http/pprof endpoint: typed profile kinds, URL
+// construction from any reasonable base-address spelling, and an
+// HTTP fetcher that returns the raw protobuf bytes.
 package profile
 
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -33,12 +38,7 @@ func AllTypes() []Type {
 
 // Valid reports whether t is one of the known profile types.
 func (t Type) Valid() bool {
-	for _, v := range AllTypes() {
-		if v == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(AllTypes(), t)
 }
 
 // Endpoint returns the path segment under `/debug/pprof/` that
