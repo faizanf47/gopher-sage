@@ -1,12 +1,3 @@
-// Package profile fetches Go pprof profiles from a live HTTP
-// endpoint as raw bytes. Consumers store and inspect those bytes
-// themselves (e.g. via `go tool pprof`); this package deliberately
-// does not interpret or summarise the profile.
-//
-// The package has two concerns, kept in separate files:
-//
-//   - source.go   — Type enum + URL builder.
-//   - fetcher.go  — HTTP fetch into a byte slice.
 package profile
 
 import (

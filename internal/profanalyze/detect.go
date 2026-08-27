@@ -42,6 +42,10 @@ const (
 // fact can be cited verbatim while the suggestion is understood as
 // a starting point, not a verdict.
 type Finding struct {
+	// ID is the static identifier of the detector that produced the
+	// finding (e.g. "CPU-001"). Stable across runs and releases, so
+	// reports and tooling can reference it.
+	ID       string `json:"id"`
 	Detector string `json:"detector"`
 	Scope    Scope  `json:"scope"`
 	Title    string `json:"title"`
@@ -66,18 +70,21 @@ type Finding struct {
 
 // Detector is the contract the deterministic analysis layer is
 // built on. Each detector is a self-contained rule: it inspects
-// the supplied DetectCtx and returns zero or more findings. New
-// detectors are added by implementing this interface and
-// registering with DefaultDetectors.
+// the supplied DetectCtx and returns zero or more findings.
 //
-// The CPU detectors inspect ctx.CPU; the heap detectors inspect
-// ctx.Heap (inuse_space by default) and may pull the alloc_space /
-// inuse_objects views from ctx as needed. Run() populates only the
-// views the profile actually carries — a heap detector run against
-// a CPU profile is skipped silently rather than emitting noise.
+// Detectors live one per file and self-register into the default
+// Registry from an init() (see registry.go). Meta() publishes the
+// detector's static ID components and its transparency contract —
+// what it checks, how it decides, and its limitations; the registry
+// refuses detectors that leave any of it blank.
+//
+// The CPU detectors inspect ctx.CPU; the heap detectors inspect the
+// heap views (inuse_space / alloc_space / ...) they need. Run()
+// populates only the views the profile actually carries — a heap
+// detector run against a CPU profile is skipped silently rather
+// than emitting noise.
 type Detector interface {
-	Name() string
-	Scope() Scope
+	Meta() Metadata
 	Detect(ctx DetectCtx) []Finding
 }
 
@@ -172,7 +179,8 @@ func Run(p *Profile, detectors []Detector) ([]Finding, error) {
 
 	var findings []Finding
 	for _, d := range detectors {
-		switch d.Scope() {
+		meta := d.Meta()
+		switch meta.Scope {
 		case ScopeCPU:
 			if !haveCPU {
 				continue
@@ -182,7 +190,7 @@ func Run(p *Profile, detectors []Detector) ([]Finding, error) {
 				continue
 			}
 		default:
-			return nil, fmt.Errorf("profanalyze: detector %q has unknown scope %q", d.Name(), d.Scope())
+			return nil, fmt.Errorf("profanalyze: detector %q has unknown scope %q", meta.Name, meta.Scope)
 		}
 		findings = append(findings, d.Detect(ctx)...)
 	}
@@ -224,30 +232,6 @@ func buildContext(p *Profile) (ctx DetectCtx, haveCPU, haveHeap bool, err error)
 		haveHeap = true
 	}
 	return ctx, haveCPU, haveHeap, nil
-}
-
-// DefaultDetectors returns the built-in detector set in canonical
-// order. The order matters: detector output is concatenated as-is,
-// so this controls the order findings appear in the output.
-func DefaultDetectors() []Detector {
-	return []Detector{
-		// CPU
-		&cpuJSONDetector{},
-		&cpuRegexpDetector{},
-		&cpuCompressionDetector{},
-		&cpuReflectionDetector{},
-		&cpuGCDetector{},
-		&cpuLockContentionDetector{},
-		&cpuStringConvDetector{},
-		// Heap
-		&heapAllocSpaceDetector{},
-		&heapInuseSpaceDetector{},
-		&heapBufferGrowthDetector{},
-		&heapStringConcatDetector{},
-		&heapJSONAllocDetector{},
-		&heapMapGrowthDetector{},
-		&heapRetentionHotspotDetector{},
-	}
 }
 
 // hasSampleType reports whether the profile carries any of the
@@ -360,10 +344,11 @@ func gradeShare(perc float64) Severity {
 // is too noisy to be actionable.
 const shareThreshold = 3.0
 
-func makeFinding(name string, scope Scope, view View, title, evidence, recommendation string, names []string, share float64, severity Severity, confidence Confidence) Finding {
+func makeFinding(meta Metadata, view View, title, evidence, recommendation string, names []string, share float64, severity Severity, confidence Confidence) Finding {
 	return Finding{
-		Detector:       name,
-		Scope:          scope,
+		ID:             meta.ID(),
+		Detector:       meta.Name,
+		Scope:          meta.Scope,
 		Title:          title,
 		Evidence:       evidence,
 		Recommendation: recommendation,
@@ -373,6 +358,52 @@ func makeFinding(name string, scope Scope, view View, title, evidence, recommend
 		Confidence:     confidence,
 		Functions:      capNames(names, 5),
 	}
+}
+
+// topFlatFrames returns the top-n frames by flat value, dropping
+// any whose flat share is below minShare. Used by the generic
+// high-alloc / high-inuse detectors to attribute a hotspot to a
+// small, named set of functions rather than a blob share.
+func topFlatFrames(v View, n int, minShare float64) []struct {
+	name string
+	flat int64
+} {
+	type pair struct {
+		name string
+		flat int64
+	}
+	pairs := make([]pair, 0, len(v.FlatByFn))
+	for name, flat := range v.FlatByFn {
+		if percentOf(flat, v.Total) < minShare {
+			continue
+		}
+		pairs = append(pairs, pair{name, flat})
+	}
+	// Selection sort top-n; n is tiny (<=5) so this stays cheap and
+	// avoids importing sort just for this.
+	for i := 0; i < n && i < len(pairs); i++ {
+		max := i
+		for j := i + 1; j < len(pairs); j++ {
+			if pairs[j].flat > pairs[max].flat {
+				max = j
+			}
+		}
+		pairs[i], pairs[max] = pairs[max], pairs[i]
+	}
+	if n > len(pairs) {
+		n = len(pairs)
+	}
+	out := make([]struct {
+		name string
+		flat int64
+	}, n)
+	for i := 0; i < n; i++ {
+		out[i] = struct {
+			name string
+			flat int64
+		}{pairs[i].name, pairs[i].flat}
+	}
+	return out
 }
 
 func roundPerc(p float64) float64 {

@@ -1,12 +1,3 @@
-// Command gopher-sage captures pprof profiles from a running Go
-// server and prints deterministic, evidence-backed performance
-// findings. It is advisory only and never modifies code: a fixed set
-// of pattern detectors inspects the profile and reports what it
-// observed, with severity, confidence, and the symbols involved.
-//
-// Usage:
-//
-//	gopher-sage -server http://localhost:6060 [-type cpu,heap] [-seconds 30] [-min-share 3] [-json]
 package main
 
 import (
@@ -22,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/faizanf47/gopher-sage/internal/analyze"
+	"github.com/faizanf47/gopher-sage/internal/profanalyze"
 	"github.com/faizanf47/gopher-sage/internal/profile"
 )
 
@@ -34,12 +26,13 @@ func main() {
 
 func run() error {
 	var (
-		server   = flag.String("server", "", "base URL of the target server's pprof endpoint, e.g. http://localhost:6060 (required)")
-		types    = flag.String("type", "cpu,heap", "comma-separated profile types to analyze: cpu, heap")
-		seconds  = flag.Int("seconds", 30, "CPU sample window in seconds (0 uses the server default)")
-		minShare = flag.Float64("min-share", 0, "drop findings below this share-of-profile percent (0 keeps the detector default noise floor)")
-		jsonOut  = flag.Bool("json", false, "emit the report as JSON instead of text")
-		verbose  = flag.Bool("v", false, "verbose logging")
+		server        = flag.String("server", "", "base URL of the target server's pprof endpoint, e.g. http://localhost:6060 (required)")
+		types         = flag.String("type", "cpu,heap", "comma-separated profile types to analyze: cpu, heap")
+		seconds       = flag.Int("seconds", 30, "CPU sample window in seconds (0 uses the server default)")
+		minShare      = flag.Float64("min-share", 0, "drop findings below this share-of-profile percent (0 keeps the detector default noise floor)")
+		jsonOut       = flag.Bool("json", false, "emit the report as JSON instead of text")
+		listDetectors = flag.Bool("detectors", false, "list the registered detectors (ID, what each checks, how it works, limitations) and exit")
+		verbose       = flag.Bool("v", false, "verbose logging")
 	)
 	flag.Parse()
 
@@ -49,6 +42,13 @@ func run() error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
 	slog.SetDefault(logger)
+
+	if *listDetectors {
+		if *jsonOut {
+			return analyze.WriteCatalogJSON(os.Stdout, profanalyze.Catalog())
+		}
+		return analyze.WriteCatalog(os.Stdout, profanalyze.Catalog())
+	}
 
 	if *server == "" {
 		flag.Usage()

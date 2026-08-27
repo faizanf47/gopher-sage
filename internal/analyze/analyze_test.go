@@ -3,6 +3,7 @@ package analyze
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -256,6 +257,7 @@ func TestWriteText(t *testing.T) {
 				Bytes:       1234,
 				SampleTypes: []string{"cpu"},
 				Findings: []profanalyze.Finding{{
+					ID:             "CPU-001",
 					Detector:       "high-json-cpu",
 					Scope:          profanalyze.ScopeCPU,
 					Title:          "encoding/json dominates CPU",
@@ -287,13 +289,48 @@ func TestWriteText(t *testing.T) {
 		"cpu profile (1234 bytes",
 		"high severity, high confidence",
 		"encoding/json dominates CPU",
-		"high-json-cpu — 70.00% of cpu",
+		"high-json-cpu [CPU-001] — 70.00% of cpu",
 		"suggestion: reduce marshalling in the hot path",
 		"no findings above the share threshold",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestWriteCatalog(t *testing.T) {
+	t.Parallel()
+
+	cat := profanalyze.Catalog()
+	var buf bytes.Buffer
+	if err := WriteCatalog(&buf, cat); err != nil {
+		t.Fatalf("WriteCatalog: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"CPU-001", "HEAP-007", "checks:", "method:", "limitations:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("catalog missing %q:\n%s", want, out)
+		}
+	}
+
+	buf.Reset()
+	if err := WriteCatalogJSON(&buf, cat); err != nil {
+		t.Fatalf("WriteCatalogJSON: %v", err)
+	}
+	var entries []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Scope string `json:"scope"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &entries); err != nil {
+		t.Fatalf("catalog JSON invalid: %v", err)
+	}
+	if len(entries) != len(cat) {
+		t.Errorf("JSON catalog has %d entries, want %d", len(entries), len(cat))
+	}
+	if entries[0].ID == "" || entries[0].Name == "" {
+		t.Errorf("JSON entry missing id/name: %+v", entries[0])
 	}
 }
 

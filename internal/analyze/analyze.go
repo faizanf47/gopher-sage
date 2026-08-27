@@ -1,7 +1,3 @@
-// Package analyze wires the deterministic pipeline together: fetch
-// pprof profiles from a running server, parse them, run the pattern
-// detectors, and collect the findings into a Report the CLI can
-// render as text or JSON.
 package analyze
 
 import (
@@ -30,17 +26,16 @@ const serverDefaultCPUSeconds = 30
 
 // Options configures a single Run.
 type Options struct {
-	// Server is the base URL of the running server's pprof endpoint,
+	// Base URL of the running server's pprof endpoint,
 	// e.g. "http://localhost:6060" or
 	// "http://localhost:6060/debug/pprof/".
 	Server string
-	// Types lists the profiles to capture and analyze. Only types
-	// the detector set covers are accepted: cpu and heap.
+	// Profiles to capture and analyze. 
 	Types []profile.Type
-	// Seconds is the CPU sample window. Zero means "use the server
+	// CPU sample window. Zero means "use the server
 	// default" (30s in the standard runtime handler).
 	Seconds int
-	// MinShare drops findings below this share-of-profile percent.
+	// Threshold to decide whether to keep the Report or not. 
 	MinShare float64
 	// Logger receives progress messages (a CPU capture blocks for
 	// the whole sample window, so silence reads as a hang). Nil
@@ -48,7 +43,6 @@ type Options struct {
 	Logger *slog.Logger
 }
 
-// validate enforces the invariants Run assumes.
 func (o Options) validate() error {
 	if o.Server == "" {
 		return fmt.Errorf("analyze: server URL is required")
@@ -90,12 +84,7 @@ type ProfileReport struct {
 	Findings    []profanalyze.Finding `json:"findings"`
 }
 
-// Run captures each requested profile from opts.Server, runs the
-// default detector set against it, and returns the collected
-// findings. Findings are ordered by severity (high first), then by
-// share of profile, so the most impactful observations lead the
-// report. Any fetch or parse failure aborts the run — partial
-// results would be indistinguishable from "nothing found".
+// Run executes the default set of Detectors and organises the report.
 func Run(ctx context.Context, fetcher profile.Fetcher, opts Options) (Report, error) {
 	if fetcher == nil {
 		return Report{}, fmt.Errorf("analyze: fetcher is required")
@@ -176,10 +165,6 @@ func analyzeOne(
 	}, nil
 }
 
-// fetchTimeout returns the per-fetch deadline. The Go runtime holds
-// the /debug/pprof/profile response until the sample window closes,
-// so CPU fetches must wait out the window plus slack; everything
-// else responds promptly.
 func fetchTimeout(src profile.Source) time.Duration {
 	if src.Type != profile.TypeCPU {
 		return defaultFetchTimeout

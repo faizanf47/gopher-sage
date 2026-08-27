@@ -16,13 +16,13 @@ gopher-sage report — http://localhost:6060
 cpu profile (128412 bytes; sample types: samples, cpu)
 
   [1] (high severity, high confidence) Regex work dominates CPU
-      detector: high-regexp-cpu — 31.42% of cpu
+      detector: high-regexp-cpu [CPU-002] — 31.42% of cpu
       evidence: regexp compilation/matching accounts for 31.42% of cpu samples
       functions: regexp.makeOnePass, regexp.compile, regexp.(*Regexp).FindString
       suggestion: hoist regexp.Compile / regexp.MustCompile out of hot paths to package init
 
   [2] (medium severity, low confidence) Lock-contention signals present
-      detector: high-lock-contention-signals — 12.10% of cpu
+      detector: high-lock-contention-signals [CPU-006] — 12.10% of cpu
       ...
 
 heap profile (34620 bytes; sample types: alloc_objects, alloc_space, inuse_objects, inuse_space)
@@ -48,7 +48,11 @@ internal/analyze          fetch → parse → detect → report
                                   CPU/heap pattern detectors
 ```
 
-The detectors (`internal/profanalyze`) are self-contained rules — CPU regex hot loops, JSON marshalling overhead, GC pressure, heap retention hotspots, unbounded buffer/map growth, and more. Each emits `Finding`s with evidence, share-of-profile, severity, and confidence. Adding a detector means implementing the small `Detector` interface and registering it in `DefaultDetectors`.
+The detectors (`internal/profanalyze`) are self-contained rules — CPU regex hot loops, JSON marshalling overhead, GC pressure, heap retention hotspots, unbounded buffer/map growth, and more. Each emits `Finding`s with evidence, share-of-profile, severity, and confidence.
+
+Detectors follow a registry pattern: one detector per file, self-registered into a central registry from `init()`, each with a static ID (`CPU-001`, `HEAP-007`, …) composed from its scope and a number that is never reused. Registration enforces a transparency contract — every detector must publish what it checks, how it decides (frames matched, thresholds applied), and its limitations — and `gopher-sage -detectors` prints that catalog. Findings carry the detector's ID so a report line can always be traced back to the rule and its documented blind spots.
+
+Adding a detector: create one file implementing `Detector` (a `Meta() Metadata` describing the rule and a `Detect(DetectCtx) []Finding`), pick the next free number in its scope, and call `MustRegister` from `init()`. The registry rejects duplicate IDs or names and missing metadata at startup.
 
 ## Quick start
 
@@ -76,7 +80,8 @@ The target only needs the standard `net/http/pprof` handler mounted. A CPU captu
 | `-type` | `cpu,heap` | Comma-separated profile types to capture and analyze |
 | `-seconds` | `30` | CPU sample window; `0` uses the server default |
 | `-min-share` | `0` | Drop findings below this share-of-profile percent (detectors already apply a 3% noise floor) |
-| `-json` | `false` | Emit the report as JSON instead of text |
+| `-json` | `false` | Emit the report (or catalog) as JSON instead of text |
+| `-detectors` | `false` | List the registered detectors — ID, what each checks, how it works, its limitations — and exit |
 | `-v` | `false` | Verbose logging |
 
 ### Try it against the bundled "leaky server"
