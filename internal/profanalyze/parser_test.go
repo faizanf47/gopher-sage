@@ -122,7 +122,6 @@ func TestResolveSampleIndex(t *testing.T) {
 		{name: "cpu profile has no inuse_space", prof: cpuProf, input: SampleInuseSpace, wantErr: true},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			idx, name, _, err := tc.prof.ResolveSampleIndex(tc.input)

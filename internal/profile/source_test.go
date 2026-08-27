@@ -45,7 +45,6 @@ func TestSource_URL(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := tc.src.URL()
@@ -68,12 +67,14 @@ func TestSource_Validate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "missing url", src: Source{Type: TypeCPU}, wantErr: "BaseURL is required"},
+		{name: "no scheme", src: Source{BaseURL: "localhost:6060", Type: TypeCPU}, wantErr: "http or https"},
+		{name: "non-http scheme", src: Source{BaseURL: "ftp://x", Type: TypeCPU}, wantErr: "http or https"},
+		{name: "no host", src: Source{BaseURL: "http://", Type: TypeCPU}, wantErr: "no host"},
 		{name: "unknown type", src: Source{BaseURL: "http://x", Type: "wat"}, wantErr: "unknown type"},
 		{name: "negative seconds", src: Source{BaseURL: "http://x", Type: TypeCPU, Seconds: -1}, wantErr: "non-negative"},
 		{name: "ok", src: Source{BaseURL: "http://x", Type: TypeCPU}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.src.Validate()

@@ -68,14 +68,24 @@ type Source struct {
 }
 
 // Validate enforces the invariants Source assumes elsewhere in the
-// package: a parseable URL, a known Type, and a non-negative
-// duration.
+// package: an absolute http(s) URL with a host, a known Type, and a
+// non-negative duration. Requiring the scheme up front catches
+// spellings like "localhost:6060", which url.Parse reads as an
+// opaque URL with scheme "localhost" and URL() would otherwise turn
+// into a fetch target with no pprof path at all.
 func (s Source) Validate() error {
 	if strings.TrimSpace(s.BaseURL) == "" {
 		return fmt.Errorf("profile: BaseURL is required")
 	}
-	if _, err := url.Parse(s.BaseURL); err != nil {
+	u, err := url.Parse(s.BaseURL)
+	if err != nil {
 		return fmt.Errorf("profile: parse BaseURL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("profile: BaseURL must be an http or https URL, got %q", s.BaseURL)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("profile: BaseURL %q has no host", s.BaseURL)
 	}
 	if !s.Type.Valid() {
 		return fmt.Errorf("profile: unknown type %q (want one of %v)", s.Type, AllTypes())
