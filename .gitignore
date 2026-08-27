@@ -3,3 +3,5 @@ bin/
 *.prof
 *.test
 .DS_Store
+fixtures/sources/leaky_server/leaky_server
+fixtures/sources/leaky_server/gopher-sage
