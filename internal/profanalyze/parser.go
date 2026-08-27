@@ -93,6 +93,19 @@ func ParseBytes(src string, raw []byte) (*Profile, error) {
 	return &Profile{Path: src, Raw: p}, nil
 }
 
+// HasCPUSamples reports whether the profile carries a CPU sample
+// type. Go CPU profiles expose it as "cpu" (nanoseconds) or
+// "samples" (count) depending on how they were captured.
+func (p *Profile) HasCPUSamples() bool {
+	return hasSampleType(p, "cpu", "samples")
+}
+
+// HasHeapSamples reports whether the profile carries any of the four
+// heap sample types (inuse/alloc × space/objects).
+func (p *Profile) HasHeapSamples() bool {
+	return hasSampleType(p, "inuse_space", "alloc_space", "inuse_objects", "alloc_objects")
+}
+
 // AvailableSampleTypes returns the sample-type names carried by the
 // profile, in profile order. Useful for diagnostics when the caller
 // asks for an index the profile does not expose.

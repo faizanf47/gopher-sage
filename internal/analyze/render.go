@@ -14,13 +14,22 @@ import (
 // the order Run produced (severity, then share).
 func WriteText(w io.Writer, rep Report) error {
 	var b strings.Builder
-	fmt.Fprintf(&b, "gopher-sage report — %s\n", rep.Server)
+	if rep.Server != "" {
+		fmt.Fprintf(&b, "gopher-sage report — %s\n", rep.Server)
+	} else {
+		b.WriteString("gopher-sage report — saved profiles\n")
+	}
 
 	for _, pr := range rep.Profiles {
+		label := string(pr.Type)
+		if pr.Source != "" {
+			label = fmt.Sprintf("%s [%s]", pr.Type, pr.Source)
+		}
 		fmt.Fprintf(
 			&b, "\n%s profile (%d bytes; sample types: %s)\n",
-			pr.Type, pr.Bytes, strings.Join(pr.SampleTypes, ", "),
+			label, pr.Bytes, strings.Join(pr.SampleTypes, ", "),
 		)
+		writeTopTable(&b, pr.Top)
 		if len(pr.Findings) == 0 {
 			b.WriteString("  no findings above the share threshold\n")
 			continue
@@ -49,6 +58,25 @@ func WriteText(w io.Writer, rep Report) error {
 
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// writeTopTable renders the optional top-N function table under a
+// profile header. A nil report (TopN was zero) writes nothing.
+func writeTopTable(b *strings.Builder, top *profanalyze.TopReport) {
+	if top == nil || len(top.Entries) == 0 {
+		return
+	}
+	fmt.Fprintf(
+		b, "\n  top %d functions (%s, by cum)\n",
+		len(top.Entries), top.SampleType,
+	)
+	fmt.Fprintf(b, "    %7s %7s  %s\n", "flat%", "cum%", "function")
+	for _, e := range top.Entries {
+		fmt.Fprintf(
+			b, "    %6.2f%% %6.2f%%  %s\n",
+			e.FlatPerc, e.CumPerc, e.Function,
+		)
+	}
 }
 
 // WriteCatalog renders the detector catalog as human-readable text:

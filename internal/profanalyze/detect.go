@@ -202,7 +202,7 @@ func Run(p *Profile, detectors []Detector) ([]Finding, error) {
 // profiles carry one. Missing views stay zero-valued so detectors
 // can range over them safely.
 func buildContext(p *Profile) (ctx DetectCtx, haveCPU, haveHeap bool, err error) {
-	if hasCPUSampleType(p) {
+	if p.HasCPUSamples() {
 		v, err := BuildView(p, SampleCPU)
 		if err != nil {
 			return DetectCtx{}, false, false, err
@@ -210,7 +210,7 @@ func buildContext(p *Profile) (ctx DetectCtx, haveCPU, haveHeap bool, err error)
 		ctx.CPU = v
 		haveCPU = true
 	}
-	if hasHeapSampleType(p) {
+	if p.HasHeapSamples() {
 		for _, pair := range []struct {
 			idx  SampleIndex
 			into *View
@@ -235,8 +235,9 @@ func buildContext(p *Profile) (ctx DetectCtx, haveCPU, haveHeap bool, err error)
 }
 
 // hasSampleType reports whether the profile carries any of the
-// supplied sample-type names. The detector machinery uses this to
-// skip scope-mismatched detectors silently.
+// supplied sample-type names. It backs the exported HasCPUSamples /
+// HasHeapSamples helpers the detector machinery and callers use to
+// classify a profile.
 func hasSampleType(p *Profile, names ...string) bool {
 	for _, st := range p.Raw.SampleType {
 		for _, n := range names {
@@ -246,14 +247,6 @@ func hasSampleType(p *Profile, names ...string) bool {
 		}
 	}
 	return false
-}
-
-func hasCPUSampleType(p *Profile) bool {
-	return hasSampleType(p, "cpu", "samples")
-}
-
-func hasHeapSampleType(p *Profile) bool {
-	return hasSampleType(p, "inuse_space", "alloc_space", "inuse_objects", "alloc_objects")
 }
 
 // matchByPrefix returns the function names from byFn whose names
