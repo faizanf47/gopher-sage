@@ -13,25 +13,30 @@ var cpuStringConvSpec = categorySpec{
 		Method: "Attributes each CPU sample once to the category when any stack " +
 			"frame is one of the runtime's conversion/concatenation helpers " +
 			"(slicebytetostring, stringtoslicebyte, slicerunetostring, " +
-			"stringtoslicerune, concatstrings, concatstring2..5), then reports " +
-			"the category's share of total CPU. Fires above 3% share; severity " +
-			"is medium at 10% and high at 25%.",
+			"stringtoslicerune, concatstring*, concatbyte*), then reports " +
+			"the category's share of total CPU. The non-allocating " +
+			"slicebytetostringtmp variant is excluded so free conversions do " +
+			"not inflate the category. Fires above 3% share; severity is " +
+			"medium at 10% and high at 25%.",
 		Limitations: "Call-site attribution names the nearest non-stdlib caller, " +
 			"which may be a third-party library rather than first-party code. " +
 			"Confidence is medium.",
 	},
 	view: cpuView,
+	// "runtime.concatstring" covers concatstrings and the arity
+	// variants concatstring2..5; "runtime.concatbyte" covers the
+	// byte-slice concatenation helpers (Go >= 1.21).
 	prefixes: []string{
 		"runtime.slicebytetostring",
 		"runtime.stringtoslicebyte",
 		"runtime.slicerunetostring",
 		"runtime.stringtoslicerune",
-		"runtime.concatstrings",
-		"runtime.concatstring2",
-		"runtime.concatstring3",
-		"runtime.concatstring4",
-		"runtime.concatstring5",
+		"runtime.concatstring",
+		"runtime.concatbyte",
 	},
+	// slicebytetostringtmp is the compiler's non-allocating variant —
+	// matching it would flag conversions that cost nothing.
+	exclude:    []string{"runtime.slicebytetostringtmp"},
 	title:      "string / []byte conversion on hot path",
 	subject:    "string<->[]byte conversion frames",
 	object:     "CPU",

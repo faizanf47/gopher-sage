@@ -11,21 +11,27 @@ var heapMapGrowthSpec = categorySpec{
 		Name:   "map-growth-pressure",
 		Checks: "Whether map allocation and growth drive allocation.",
 		Method: "Attributes each allocation sample once to the category when any " +
-			"stack frame is a runtime map function (makemap, makemap_small, " +
-			"mapassign*, hashGrow, growWork), then reports the category's " +
-			"share of alloc_space. Fires above 3% share; severity is medium at " +
-			"10% and high at 25%. Confidence is medium.",
-		Limitations: "The runtime's map internals change across Go versions " +
-			"(e.g. the Swiss-table rewrite), so the frame list can silently go " +
-			"stale and understate map pressure on newer toolchains.",
+			"stack frame is a runtime map function (makemap*, mapassign*, the " +
+			"Swiss-table internals under internal/runtime/maps, and the " +
+			"pre-1.24 hashGrow/growWork), then reports the category's share " +
+			"of alloc_space. Fires above 3% share; severity is medium at 10% " +
+			"and high at 25%. Confidence is medium.",
+		Limitations: "Native Go heap profiles strip leading runtime frames, so " +
+			"this detector fires only on profiles that retain them (foreign " +
+			"writers, hand-built profiles); on native profiles map allocation " +
+			"lands flat on the calling function and surfaces via HEAP-001 " +
+			"instead.",
 	},
 	view: allocSpaceView,
+	// "runtime.makemap" covers makemap_small/makemap64 and
+	// "runtime.mapassign" covers every mapassign_fast* variant.
+	// internal/runtime/maps.* is the Go >= 1.24 Swiss-table
+	// machinery; hashGrow/growWork exist only in profiles from
+	// pre-Swiss-table runtimes.
 	prefixes: []string{
 		"runtime.makemap",
-		"runtime.makemap_small",
 		"runtime.mapassign",
-		"runtime.mapassign_fast",
-		"runtime.mapassign_faststr",
+		"internal/runtime/maps.",
 		"runtime.hashGrow",
 		"runtime.growWork",
 	},

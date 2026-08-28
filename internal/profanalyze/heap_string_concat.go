@@ -12,24 +12,25 @@ var heapStringConcatSpec = categorySpec{
 		Checks: "Whether string concatenation and string<->[]byte conversion drive allocation.",
 		Method: "Attributes each allocation sample once to the category when any " +
 			"stack frame is a runtime concatenation/conversion helper " +
-			"(concatstrings, concatstring2..5, slicebytetostring, " +
+			"(concatstring*, concatbyte*, slicebytetostring, " +
 			"stringtoslicebyte), then reports the category's share of " +
 			"alloc_space. Fires above 3% share; severity is medium at 10% and " +
 			"high at 25%.",
-		Limitations: "Call-site attribution names the nearest non-stdlib caller, " +
-			"which may be a third-party library; conversions forced by " +
-			"third-party APIs look identical to avoidable ones.",
+		Limitations: "Native Go heap profiles strip leading runtime frames, so " +
+			"this detector fires only on profiles that retain them (foreign " +
+			"writers, hand-built profiles); on native profiles concat " +
+			"allocation lands flat on the calling function and surfaces via " +
+			"HEAP-001 instead. Conversions forced by third-party APIs look " +
+			"identical to avoidable ones.",
 	},
 	view: allocSpaceView,
 	prefixes: []string{
-		"runtime.concatstrings",
-		"runtime.concatstring2",
-		"runtime.concatstring3",
-		"runtime.concatstring4",
-		"runtime.concatstring5",
+		"runtime.concatstring",
+		"runtime.concatbyte",
 		"runtime.slicebytetostring",
 		"runtime.stringtoslicebyte",
 	},
+	exclude:    []string{"runtime.slicebytetostringtmp"},
 	title:      "string concat / conversion allocates",
 	subject:    "string concat / conversion frames",
 	object:     "allocation",
