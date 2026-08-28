@@ -1,15 +1,11 @@
 package profanalyze
 
-import "fmt"
+func init() { MustRegister(newCategoryDetector(cpuCompressionSpec)) }
 
-func init() { MustRegister(cpuCompressionDetector{}) }
-
-// cpuCompressionDetector reports when compress/* work consumes a
+// cpuCompressionSpec reports when compress/* work consumes a
 // meaningful share of CPU.
-type cpuCompressionDetector struct{}
-
-func (cpuCompressionDetector) Meta() Metadata {
-	return Metadata{
+var cpuCompressionSpec = categorySpec{
+	meta: Metadata{
 		Scope:  ScopeCPU,
 		Num:    3,
 		Name:   "high-compression-cpu",
@@ -21,27 +17,18 @@ func (cpuCompressionDetector) Meta() Metadata {
 		Limitations: "A high compression share is expected — not a defect — for " +
 			"services that compress payloads by design; the detector cannot " +
 			"judge intent, only cost.",
-	}
-}
-
-func (d cpuCompressionDetector) Detect(ctx DetectCtx) []Finding {
-	v := ctx.CPU
-	names, total := matchBySample(v,
+	},
+	view: cpuView,
+	prefixes: []string{
 		"compress/gzip.",
 		"compress/flate.",
 		"compress/zlib.",
 		"compress/lzw.",
 		"compress/bzip2.",
-	)
-	share := percentOf(total, v.Total)
-	if share < shareThreshold {
-		return nil
-	}
-	return []Finding{makeFinding(
-		d.Meta(), v,
-		"compression dominates CPU samples",
-		fmt.Sprintf("compress/* frames account for %.2f%% of CPU.", share),
-		"Lower the compression level, cache compressed output, or skip compression for small/already-compressed payloads.",
-		names, share, gradeShare(share), ConfidenceHigh,
-	)}
+	},
+	title:      "compression dominates CPU samples",
+	subject:    "compress/* frames",
+	object:     "CPU",
+	recommend:  "Lower the compression level, cache compressed output, or skip compression for small/already-compressed payloads.",
+	confidence: ConfidenceHigh,
 }

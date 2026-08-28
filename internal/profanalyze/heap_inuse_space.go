@@ -1,15 +1,11 @@
 package profanalyze
 
-import "fmt"
+func init() { MustRegister(newTopFlatDetector(heapInuseSpaceSpec)) }
 
-func init() { MustRegister(heapInuseSpaceDetector{}) }
-
-// heapInuseSpaceDetector reports the functions holding the most
-// live heap — candidates for retention review.
-type heapInuseSpaceDetector struct{}
-
-func (heapInuseSpaceDetector) Meta() Metadata {
-	return Metadata{
+// heapInuseSpaceSpec reports the functions holding the most live
+// heap — candidates for retention review.
+var heapInuseSpaceSpec = topFlatSpec{
+	meta: Metadata{
 		Scope:  ScopeHeap,
 		Num:    2,
 		Name:   "high-inuse-space",
@@ -21,29 +17,12 @@ func (heapInuseSpaceDetector) Meta() Metadata {
 		Limitations: "Nearly every healthy process concentrates live heap in a " +
 			"few sites, so a high share alone does not indicate a leak — it " +
 			"says where the memory lives, not whether it should.",
-	}
-}
-
-func (d heapInuseSpaceDetector) Detect(ctx DetectCtx) []Finding {
-	v := ctx.InuseSpace
-	if v.Total == 0 {
-		return nil
-	}
-	top := topFlatFrames(v, 3, shareThreshold)
-	if len(top) == 0 {
-		return nil
-	}
-	var names []string
-	var share float64
-	for _, t := range top {
-		names = append(names, t.name)
-		share += percentOf(t.flat, v.Total)
-	}
-	return []Finding{makeFinding(
-		d.Meta(), v,
-		"hot inuse_space frames",
-		fmt.Sprintf("top inuse_space frames account for %.2f%% of live heap.", share),
-		"Retention candidates. Verify whether the memory is a deliberate cache or an unintended hold (leak, growing slice/map without eviction).",
-		names, share, gradeShare(share), ConfidenceHigh,
-	)}
+	},
+	view:       inuseSpaceView,
+	n:          3,
+	title:      "hot inuse_space frames",
+	subject:    "top inuse_space frames",
+	object:     "live heap",
+	recommend:  "Retention candidates. Verify whether the memory is a deliberate cache or an unintended hold (leak, growing slice/map without eviction).",
+	confidence: ConfidenceHigh,
 }

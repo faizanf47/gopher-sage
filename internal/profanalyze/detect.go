@@ -286,31 +286,48 @@ func matchByPrefix(byFn map[string]int64, prefixes ...string) []string {
 	return matched
 }
 
-// matchBySample returns the function names matching any of the
-// supplied prefixes (ranked by cumulative value) plus the total
-// sample value attributed ONCE per sample whose stack reaches any
-// matching frame. This is the flame-graph question — "how much of
-// the profile passes through this category" — and cannot exceed the
-// view total even when a stack carries several matching frames
-// (e.g. regexp.MustCompile → regexp.Compile → regexp.compile).
-func matchBySample(v View, prefixes ...string) (matched []string, total int64) {
-	matched = matchByPrefix(v.CumByFn, prefixes...)
+// categoryMatch is the result of attributing a view's samples to a
+// frame category.
+type categoryMatch struct {
+	// names are the matched frames, ranked by cumulative value.
+	names []string
+	// value is the total sample value attributed ONCE per sample
+	// whose stack reaches any matching frame.
+	value int64
+}
+
+// matchCategory answers the flame-graph question — "how much of the
+// profile passes through this category" — for the frames matching
+// any of the supplied prefixes (minus exact names in exclude). Each
+// sample counts once no matter how many of its frames match, so the
+// category value cannot exceed the view total even when a stack
+// carries several matching frames (e.g. regexp.MustCompile →
+// regexp.Compile → regexp.compile).
+func matchCategory(v View, prefixes, exclude []string) categoryMatch {
+	matched := matchByPrefix(v.CumByFn, prefixes...)
+	if len(exclude) > 0 {
+		matched = slices.DeleteFunc(matched, func(name string) bool {
+			return slices.Contains(exclude, name)
+		})
+	}
 	if len(matched) == 0 {
-		return nil, 0
+		return categoryMatch{}
 	}
 	inCategory := make(map[string]struct{}, len(matched))
 	for _, name := range matched {
 		inCategory[name] = struct{}{}
 	}
+	var m categoryMatch
+	m.names = matched
 	for _, s := range v.Samples {
 		for _, frame := range s.Frames {
 			if _, ok := inCategory[frame]; ok {
-				total += s.Value
+				m.value += s.Value
 				break
 			}
 		}
 	}
-	return matched, total
+	return m
 }
 
 // capNames trims a function list to at most n entries so detector

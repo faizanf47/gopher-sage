@@ -1,15 +1,11 @@
 package profanalyze
 
-import "fmt"
+func init() { MustRegister(newCategoryDetector(heapBufferGrowthSpec)) }
 
-func init() { MustRegister(heapBufferGrowthDetector{}) }
-
-// heapBufferGrowthDetector reports when grow-and-copy of slices and
+// heapBufferGrowthSpec reports when grow-and-copy of slices and
 // byte/string builders drives allocation.
-type heapBufferGrowthDetector struct{}
-
-func (heapBufferGrowthDetector) Meta() Metadata {
-	return Metadata{
+var heapBufferGrowthSpec = categorySpec{
+	meta: Metadata{
 		Scope:  ScopeHeap,
 		Num:    3,
 		Name:   "buffer-growth-pressure",
@@ -24,31 +20,19 @@ func (heapBufferGrowthDetector) Meta() Metadata {
 			"Builder is used correctly, and growth cost may already be " +
 			"amortised — a match shows growth happens, not that pre-sizing " +
 			"is missing.",
-	}
-}
-
-func (d heapBufferGrowthDetector) Detect(ctx DetectCtx) []Finding {
-	v := ctx.AllocSpace
-	if v.Total == 0 {
-		return nil
-	}
-	names, total := matchBySample(v,
+	},
+	view: allocSpaceView,
+	prefixes: []string{
 		"bytes.makeSlice",
 		"bytes.(*Buffer).grow",
 		"bytes.growSlice",
 		"strings.(*Builder).grow",
 		"strings.(*Builder).WriteString",
 		"runtime.growslice",
-	)
-	share := percentOf(total, v.Total)
-	if share < shareThreshold {
-		return nil
-	}
-	return []Finding{makeFinding(
-		d.Meta(), v,
-		"buffer / slice growth allocates aggressively",
-		fmt.Sprintf("buffer-grow frames account for %.2f%% of allocation.", share),
-		"Pre-size buffers (make([]T, 0, n) / Builder.Grow) or reuse via sync.Pool to remove the grow-and-copy. Validate the pool win with -benchmem before recommending.",
-		names, share, gradeShare(share), ConfidenceHigh,
-	)}
+	},
+	title:      "buffer / slice growth allocates aggressively",
+	subject:    "buffer-grow frames",
+	object:     "allocation",
+	recommend:  "Pre-size buffers (make([]T, 0, n) / Builder.Grow) or reuse via sync.Pool to remove the grow-and-copy. Validate the pool win with -benchmem before recommending.",
+	confidence: ConfidenceHigh,
 }

@@ -1,15 +1,11 @@
 package profanalyze
 
-import "fmt"
+func init() { MustRegister(newCategoryDetector(cpuStringConvSpec)) }
 
-func init() { MustRegister(cpuStringConvDetector{}) }
-
-// cpuStringConvDetector reports when string<->[]byte conversion and
+// cpuStringConvSpec reports when string<->[]byte conversion and
 // string concatenation consume a meaningful share of CPU.
-type cpuStringConvDetector struct{}
-
-func (cpuStringConvDetector) Meta() Metadata {
-	return Metadata{
+var cpuStringConvSpec = categorySpec{
+	meta: Metadata{
 		Scope:  ScopeCPU,
 		Num:    7,
 		Name:   "expensive-string-conversion",
@@ -23,12 +19,9 @@ func (cpuStringConvDetector) Meta() Metadata {
 		Limitations: "Cannot identify the converting call site, and conversions " +
 			"inside third-party libraries look identical to workspace code. " +
 			"Confidence is medium.",
-	}
-}
-
-func (d cpuStringConvDetector) Detect(ctx DetectCtx) []Finding {
-	v := ctx.CPU
-	names, total := matchBySample(v,
+	},
+	view: cpuView,
+	prefixes: []string{
 		"runtime.slicebytetostring",
 		"runtime.stringtoslicebyte",
 		"runtime.slicerunetostring",
@@ -38,16 +31,10 @@ func (d cpuStringConvDetector) Detect(ctx DetectCtx) []Finding {
 		"runtime.concatstring3",
 		"runtime.concatstring4",
 		"runtime.concatstring5",
-	)
-	share := percentOf(total, v.Total)
-	if share < shareThreshold {
-		return nil
-	}
-	return []Finding{makeFinding(
-		d.Meta(), v,
-		"string / []byte conversion on hot path",
-		fmt.Sprintf("string<->[]byte conversion frames account for %.2f%% of CPU.", share),
-		"Look for []byte(s) / string(b) inside loops or per-request paths. Replace string concatenation with strings.Builder, or reuse a []byte buffer across calls.",
-		names, share, gradeShare(share), ConfidenceMedium,
-	)}
+	},
+	title:      "string / []byte conversion on hot path",
+	subject:    "string<->[]byte conversion frames",
+	object:     "CPU",
+	recommend:  "Look for []byte(s) / string(b) inside loops or per-request paths. Replace string concatenation with strings.Builder, or reuse a []byte buffer across calls.",
+	confidence: ConfidenceMedium,
 }

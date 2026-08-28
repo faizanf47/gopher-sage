@@ -1,15 +1,11 @@
 package profanalyze
 
-import "fmt"
+func init() { MustRegister(newCategoryDetector(cpuJSONSpec)) }
 
-func init() { MustRegister(cpuJSONDetector{}) }
-
-// cpuJSONDetector reports when encoding/json marshalling or
+// cpuJSONSpec reports when encoding/json marshalling or
 // unmarshalling consumes a meaningful share of CPU.
-type cpuJSONDetector struct{}
-
-func (cpuJSONDetector) Meta() Metadata {
-	return Metadata{
+var cpuJSONSpec = categorySpec{
+	meta: Metadata{
 		Scope:  ScopeCPU,
 		Num:    1,
 		Name:   "high-json-cpu",
@@ -21,23 +17,12 @@ func (cpuJSONDetector) Meta() Metadata {
 		Limitations: "Cannot say which workspace call site drives the cost, and a " +
 			"high share may be legitimate for a service whose job is JSON " +
 			"transformation.",
-	}
-}
-
-func (d cpuJSONDetector) Detect(ctx DetectCtx) []Finding {
-	v := ctx.CPU
-	names, total := matchBySample(v,
-		"encoding/json.",
-	)
-	share := percentOf(total, v.Total)
-	if share < shareThreshold {
-		return nil
-	}
-	return []Finding{makeFinding(
-		d.Meta(), v,
-		"encoding/json dominates CPU samples",
-		fmt.Sprintf("encoding/json frames account for %.2f%% of CPU.", share),
-		"Likely repeated marshal/unmarshal on the hot path. Cache encoded output, switch to easyjson/codegen, or use json.RawMessage for pass-through fields.",
-		names, share, gradeShare(share), ConfidenceHigh,
-	)}
+	},
+	view:       cpuView,
+	prefixes:   []string{"encoding/json."},
+	title:      "encoding/json dominates CPU samples",
+	subject:    "encoding/json frames",
+	object:     "CPU",
+	recommend:  "Likely repeated marshal/unmarshal on the hot path. Cache encoded output, switch to easyjson/codegen, or use json.RawMessage for pass-through fields.",
+	confidence: ConfidenceHigh,
 }

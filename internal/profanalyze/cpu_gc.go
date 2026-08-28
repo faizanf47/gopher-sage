@@ -1,15 +1,16 @@
 package profanalyze
 
-import "fmt"
+func init() { MustRegister(newCategoryDetector(cpuGCSpec)) }
 
-func init() { MustRegister(cpuGCDetector{}) }
-
-// cpuGCDetector reports when garbage-collection and allocation
+// cpuGCSpec reports when garbage-collection and allocation
 // machinery consume a meaningful share of CPU.
-type cpuGCDetector struct{}
-
-func (cpuGCDetector) Meta() Metadata {
-	return Metadata{
+//
+// runtime.gcBgMarkWorker is the dedicated background mark worker;
+// runtime.scanobject / runtime.greyobject / mark* frames are the
+// scanner; runtime.mallocgc is allocation cost (often the actual
+// driver of GC pressure).
+var cpuGCSpec = categorySpec{
+	meta: Metadata{
 		Scope:  ScopeCPU,
 		Num:    5,
 		Name:   "high-gc-cpu",
@@ -25,16 +26,9 @@ func (cpuGCDetector) Meta() Metadata {
 			"allocation pressure can be understated. Confidence is medium: a " +
 			"heap profile (alloc_space) is needed to locate the allocation " +
 			"sites responsible.",
-	}
-}
-
-func (d cpuGCDetector) Detect(ctx DetectCtx) []Finding {
-	v := ctx.CPU
-	// runtime.gcBgMarkWorker is the dedicated background mark
-	// worker; runtime.scanobject / runtime.greyobject / mark*
-	// frames are the scanner; runtime.mallocgc is allocation cost
-	// (often the actual driver of GC pressure).
-	names, total := matchBySample(v,
+	},
+	view: cpuView,
+	prefixes: []string{
 		"runtime.gcBgMarkWorker",
 		"runtime.gcDrain",
 		"runtime.scanobject",
@@ -44,16 +38,10 @@ func (d cpuGCDetector) Detect(ctx DetectCtx) []Finding {
 		"runtime.gcMarkDone",
 		"runtime.mallocgc",
 		"runtime.sweepone",
-	)
-	share := percentOf(total, v.Total)
-	if share < shareThreshold {
-		return nil
-	}
-	return []Finding{makeFinding(
-		d.Meta(), v,
-		"GC / allocator dominates CPU samples",
-		fmt.Sprintf("runtime GC / allocator frames account for %.2f%% of CPU.", share),
-		"Workload is allocation-heavy. Cross-reference with a heap profile (alloc_space) to locate the workspace allocation sites and reduce per-call allocations.",
-		names, share, gradeShare(share), ConfidenceMedium,
-	)}
+	},
+	title:      "GC / allocator dominates CPU samples",
+	subject:    "runtime GC / allocator frames",
+	object:     "CPU",
+	recommend:  "Workload is allocation-heavy. Cross-reference with a heap profile (alloc_space) to locate the workspace allocation sites and reduce per-call allocations.",
+	confidence: ConfidenceMedium,
 }
