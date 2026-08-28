@@ -15,25 +15,30 @@ gopher-sage report — http://localhost:6060
 
 cpu profile (128412 bytes; sample types: samples, cpu)
 
-  [1] (high severity, high confidence) Regex work dominates CPU
+  [1] (high severity, high confidence) regexp dominates CPU samples
       detector: high-regexp-cpu [CPU-002] — 31.42% of cpu
-      evidence: regexp compilation/matching accounts for 31.42% of cpu samples
-      functions: regexp.makeOnePass, regexp.compile, regexp.(*Regexp).FindString
-      suggestion: hoist regexp.Compile / regexp.MustCompile out of hot paths to package init
+      evidence: regexp frames account for 31.42% of CPU (412.0ms of 1.3s).
+      functions: regexp.Compile, regexp.MustCompile, regexp.compile, regexp/syntax.Parse
+      call sites: main.processItems (28.10%)
+      suggestion: regexp.Compile/MustCompile observed on the hot path — almost certainly
+                  being compiled per call. Move to a package-level var initialised once.
 
-  [2] (medium severity, low confidence) Lock-contention signals present
+  [2] (medium severity, low confidence) possible lock / channel contention signal
       detector: high-lock-contention-signals [CPU-006] — 12.10% of cpu
       ...
 
 heap profile (34620 bytes; sample types: alloc_objects, alloc_space, inuse_objects, inuse_space)
 
-  [1] (high severity, medium confidence) Buffer growth drives allocations
+  [1] (high severity, high confidence) hot inuse_space frames
+      detector: high-inuse-space [HEAP-002] — 97.68% of inuse_space
+      evidence: top inuse_space frames account for 97.68% of live heap (283.0 MiB of 289.7 MiB).
+      functions: main.buildPayload
       ...
 ```
 
-Each finding cites the detector that fired, the sample type it inspected, its share of the profile, the symbols involved, and a canonical remediation pattern. Confidence is graded honestly: a CPU profile alone cannot *prove* lock contention, so that detector reports a low-confidence lead rather than a verdict.
+Each finding cites the detector that fired, the sample type it inspected, its share of the profile **with the absolute cost humanized** (MiB of heap, ms of CPU), the symbols involved, the **call sites** — the user-code functions the cost flows through, so the report points at *your* function rather than a runtime frame — and a canonical remediation pattern. Confidence is graded honestly: a CPU profile alone cannot *prove* lock contention, so that detector reports a low-confidence lead rather than a verdict.
 
-Pass `-json` to get the same report as structured JSON for scripting or dashboards, and `-top N` to include a pprof-style top-N function table alongside each profile's findings.
+Pass `-json` to get the same report as structured JSON for scripting or dashboards — findings carry `matched_value` + `unit` (the absolute cost) and `call_sites` (attributed user functions with their profile shares) alongside the fields shown above. `-top N` adds a pprof-style top-N function table to each profile.
 
 ## Design at a glance
 
@@ -52,7 +57,7 @@ The detectors (`internal/profanalyze`) are self-contained rules — CPU regex ho
 
 Detectors follow a registry pattern: one detector per file, self-registered into a central registry from `init()`, each with a static ID (`CPU-001`, `HEAP-007`, …) composed from its scope and a number that is never reused. Registration enforces a transparency contract — every detector must publish what it checks, how it decides (frames matched, thresholds applied), and its limitations — and `gopher-sage -detectors` prints that catalog. Findings carry the detector's ID so a report line can always be traced back to the rule and its documented blind spots.
 
-Adding a detector: create one file implementing `Detector` (a `Meta() Metadata` describing the rule and a `Detect(DetectCtx) []Finding`), pick the next free number in its scope, and call `MustRegister` from `init()`. The registry rejects duplicate IDs or names and missing metadata at startup.
+Most detectors are *declarations, not implementations*: a `categorySpec` (the view to read, the frame prefixes that define the category, the report text) handed to a shared engine that owns matching, thresholding, severity grading, call-site attribution, and evidence formatting. Adding one is ~25 declarative lines. Detectors with genuinely unique logic (the cross-view retention detector, for instance) implement `Detector` directly. Either way: one file per detector, the next free number in its scope, `MustRegister` from `init()` — the registry rejects duplicate IDs or names and missing metadata at startup.
 
 ## Quick start
 
@@ -140,6 +145,8 @@ The parser is fuzzed end to end (arbitrary bytes → parse → detectors → top
 go test -fuzz=FuzzParseBytes -fuzztime=30s ./internal/profanalyze
 go test -bench=. -benchmem -run '^$' ./internal/profanalyze
 ```
+
+The detector frame lists reference private runtime symbols that Go releases rename freely, so *runtime-truth tests* guard them: real workloads run in-process, a profile is captured from the live runtime via `runtime/pprof`, and the detectors are asserted against it. Two assertions are inverted canaries — Go's heap profiler strips leading `runtime.*` frames from heap samples (`hideRuntime` in `runtime/pprof/protomem.go`), so the all-runtime heap categories must *not* fire on native profiles; if a future Go release changes that, the canary fails and forces a deliberate revisit.
 
 CI runs vet, golangci-lint, the test suite under `-race` with coverage, and both builds against Go 1.25 on every push and PR.
 
