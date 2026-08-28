@@ -9,16 +9,16 @@ import (
 )
 
 // loadFixtureProfile loads a captured profile fixture, skipping the
-// benchmark when the fixture is not present in the checkout.
-func loadFixtureProfile(b *testing.B, name string) *Profile {
-	b.Helper()
+// test or benchmark when the fixture is not present in the checkout.
+func loadFixtureProfile(tb testing.TB, name string) *Profile {
+	tb.Helper()
 	path := filepath.Join("..", "..", "fixtures", "profiles", name)
 	p, err := Load(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			b.Skipf("profile fixture %s is not present; skipping", path)
+			tb.Skipf("profile fixture %s is not present; skipping", path)
 		}
-		b.Fatalf("load fixture %s: %v", path, err)
+		tb.Fatalf("load fixture %s: %v", path, err)
 	}
 	return p
 }
