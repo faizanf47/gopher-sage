@@ -132,6 +132,12 @@ func TestRun_highJSONCPU_fires(t *testing.T) {
 	if !contains(got.Functions, "encoding/json.Marshal") {
 		t.Errorf("functions missing json.Marshal: %v", got.Functions)
 	}
+	if got.MatchedValue != 700 || got.Unit != "nanoseconds" {
+		t.Errorf("matched value = %d %q, want 700 nanoseconds", got.MatchedValue, got.Unit)
+	}
+	if !strings.Contains(got.Evidence, "700ns of 1.0µs") {
+		t.Errorf("evidence missing humanized values: %q", got.Evidence)
+	}
 }
 
 func TestRun_heapDetectorsSkippedOnCPUProfile(t *testing.T) {
@@ -168,6 +174,9 @@ func TestRun_bufferGrowth_fires(t *testing.T) {
 	}
 	if got.SharePerc < 90 {
 		t.Errorf("share = %.2f, want >= 90", got.SharePerc)
+	}
+	if got.MatchedValue != 1000 || got.Unit != "bytes" {
+		t.Errorf("matched value = %d %q, want 1000 bytes", got.MatchedValue, got.Unit)
 	}
 }
 

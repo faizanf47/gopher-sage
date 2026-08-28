@@ -63,11 +63,16 @@ type Finding struct {
 	// finding (e.g. "hoist regexp.Compile to package init"). It is
 	// a starting point to adapt to the specific function the
 	// evidence points at, not a finished verdict.
-	Recommendation string     `json:"recommendation,omitempty"`
-	SampleType     string     `json:"sample_type,omitempty"`
-	SharePerc      float64    `json:"share_perc"`
-	Severity       Severity   `json:"severity"`
-	Confidence     Confidence `json:"confidence"`
+	Recommendation string  `json:"recommendation,omitempty"`
+	SampleType     string  `json:"sample_type,omitempty"`
+	SharePerc      float64 `json:"share_perc"`
+	// MatchedValue is the absolute sample value SharePerc was
+	// computed from, in Unit (e.g. the matched bytes of alloc_space).
+	MatchedValue int64 `json:"matched_value,omitempty"`
+	// Unit is the sample type's unit: "bytes", "nanoseconds", "count".
+	Unit       string     `json:"unit,omitempty"`
+	Severity   Severity   `json:"severity"`
+	Confidence Confidence `json:"confidence"`
 	// Functions lists the symbols (workspace or stdlib/runtime)
 	// that triggered the detector, ranked by their contribution.
 	// Capped at a small number to keep the JSON manageable.
@@ -358,7 +363,7 @@ func gradeShare(perc float64) Severity {
 // is too noisy to be actionable.
 const shareThreshold = 3.0
 
-func makeFinding(meta Metadata, view View, title, evidence, recommendation string, names []string, share float64, severity Severity, confidence Confidence) Finding {
+func makeFinding(meta Metadata, view View, title, evidence, recommendation string, names []string, matched int64, share float64, severity Severity, confidence Confidence) Finding {
 	return Finding{
 		ID:             meta.ID(),
 		Detector:       meta.Name,
@@ -368,6 +373,8 @@ func makeFinding(meta Metadata, view View, title, evidence, recommendation strin
 		Recommendation: recommendation,
 		SampleType:     view.SampleType,
 		SharePerc:      roundPerc(share),
+		MatchedValue:   matched,
+		Unit:           view.Unit,
 		Severity:       severity,
 		Confidence:     confidence,
 		Functions:      capNames(names, 5),

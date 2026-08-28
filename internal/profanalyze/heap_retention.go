@@ -81,16 +81,21 @@ func (d heapRetentionHotspotDetector) Detect(ctx DetectCtx) []Finding {
 		return cands[i].name < cands[j].name
 	})
 	var names []string
+	var matched int64
 	var share float64
 	for _, c := range cands {
 		names = append(names, c.name)
+		matched += inuse.FlatByFn[c.name]
 		share += c.inuseShare
 	}
 	return []Finding{makeFinding(
 		d.Meta(), inuse,
 		"long-lived retention candidate(s)",
-		fmt.Sprintf("frames retain materially more memory than they churn (inuse:alloc ratio >= %.0fx); %.2f%% of live heap sits here.", minRatio, share),
+		fmt.Sprintf(
+			"frames retain materially more memory than they churn (inuse:alloc ratio >= %.0fx); %.2f%% of live heap (%s of %s) sits here.",
+			minRatio, share, humanizeValue(matched, inuse.Unit), humanizeValue(inuse.Total, inuse.Unit),
+		),
 		"Check whether the retention is a deliberate cache (and if so, whether eviction is bounded) or an unintended hold from a long-lived reference / unbounded buffer.",
-		names, share, gradeShare(share), ConfidenceMedium,
+		names, matched, share, gradeShare(share), ConfidenceMedium,
 	)}
 }

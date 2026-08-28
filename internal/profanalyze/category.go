@@ -52,10 +52,14 @@ func (d catDetector) Detect(ctx DetectCtx) []Finding {
 			rec = upgraded
 		}
 	}
-	evidence := fmt.Sprintf("%s account for %.2f%% of %s.", s.subject, share, s.object)
+	evidence := fmt.Sprintf(
+		"%s account for %.2f%% of %s (%s of %s).",
+		s.subject, share, s.object,
+		humanizeValue(m.value, v.Unit), humanizeValue(v.Total, v.Unit),
+	)
 	return []Finding{makeFinding(
 		s.meta, v, s.title, evidence, rec,
-		m.names, share, gradeShare(share), s.confidence,
+		m.names, m.value, share, gradeShare(share), s.confidence,
 	)}
 }
 
@@ -88,15 +92,21 @@ func (d topFlatDetector) Detect(ctx DetectCtx) []Finding {
 		return nil
 	}
 	var names []string
+	var matched int64
 	var share float64
 	for _, t := range top {
 		names = append(names, t.name)
+		matched += t.flat
 		share += percentOf(t.flat, v.Total)
 	}
-	evidence := fmt.Sprintf("%s account for %.2f%% of %s.", s.subject, share, s.object)
+	evidence := fmt.Sprintf(
+		"%s account for %.2f%% of %s (%s of %s).",
+		s.subject, share, s.object,
+		humanizeValue(matched, v.Unit), humanizeValue(v.Total, v.Unit),
+	)
 	return []Finding{makeFinding(
 		s.meta, v, s.title, evidence, s.recommend,
-		names, share, gradeShare(share), s.confidence,
+		names, matched, share, gradeShare(share), s.confidence,
 	)}
 }
 
