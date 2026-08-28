@@ -77,6 +77,12 @@ type Finding struct {
 	// that triggered the detector, ranked by their contribution.
 	// Capped at a small number to keep the JSON manageable.
 	Functions []string `json:"functions,omitempty"`
+	// CallSites lists the nearest non-stdlib callers above the
+	// matched frames, ranked by attributed value — the user-code
+	// functions the category's cost flows through. Their shares can
+	// sum to less than SharePerc: samples whose whole stack is
+	// runtime code carry no call site.
+	CallSites []CallSite `json:"call_sites,omitempty"`
 }
 
 // Detector is the contract the deterministic analysis layer is
@@ -299,6 +305,9 @@ type categoryMatch struct {
 	// value is the total sample value attributed ONCE per sample
 	// whose stack reaches any matching frame.
 	value int64
+	// callSites are the nearest non-stdlib callers above the matched
+	// frames, ranked by attributed value.
+	callSites []CallSite
 }
 
 // matchCategory answers the flame-graph question — "how much of the
@@ -308,6 +317,12 @@ type categoryMatch struct {
 // category value cannot exceed the view total even when a stack
 // carries several matching frames (e.g. regexp.MustCompile →
 // regexp.Compile → regexp.compile).
+//
+// Each matched sample is additionally attributed to its nearest
+// user-code caller: the first isUserFrame frame above the deepest
+// matched frame (stacks are leaf-first). Samples whose whole stack
+// is runtime/stdlib code — GC background workers, for instance —
+// count toward the category value but toward no call site.
 func matchCategory(v View, prefixes, exclude []string) categoryMatch {
 	matched := matchByPrefix(v.CumByFn, prefixes...)
 	if len(exclude) > 0 {
@@ -322,16 +337,29 @@ func matchCategory(v View, prefixes, exclude []string) categoryMatch {
 	for _, name := range matched {
 		inCategory[name] = struct{}{}
 	}
-	var m categoryMatch
-	m.names = matched
+
+	m := categoryMatch{names: matched}
+	byCaller := make(map[string]int64)
 	for _, s := range v.Samples {
-		for _, frame := range s.Frames {
+		deepest := -1
+		for i, frame := range s.Frames {
 			if _, ok := inCategory[frame]; ok {
-				m.value += s.Value
+				deepest = i
+				break
+			}
+		}
+		if deepest < 0 {
+			continue
+		}
+		m.value += s.Value
+		for _, frame := range s.Frames[deepest+1:] {
+			if isUserFrame(frame) {
+				byCaller[frame] += s.Value
 				break
 			}
 		}
 	}
+	m.callSites = topCallSites(byCaller, v.Total, maxCallSites)
 	return m
 }
 

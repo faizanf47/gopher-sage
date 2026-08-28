@@ -2,6 +2,7 @@ package profanalyze
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -137,6 +138,10 @@ func TestRun_highJSONCPU_fires(t *testing.T) {
 	}
 	if !strings.Contains(got.Evidence, "700ns of 1.0µs") {
 		t.Errorf("evidence missing humanized values: %q", got.Evidence)
+	}
+	wantSites := []CallSite{{Function: "main.handler", SharePerc: 70}}
+	if !reflect.DeepEqual(got.CallSites, wantSites) {
+		t.Errorf("call sites = %+v, want %+v", got.CallSites, wantSites)
 	}
 }
 
@@ -368,6 +373,10 @@ func TestRun_growChainCountsOnce(t *testing.T) {
 	}
 	if got.SharePerc != 80 {
 		t.Errorf("share = %.2f, want exactly 80 (one count per sample)", got.SharePerc)
+	}
+	wantSites := []CallSite{{Function: "main.handler", SharePerc: 80}}
+	if !reflect.DeepEqual(got.CallSites, wantSites) {
+		t.Errorf("call sites = %+v, want %+v", got.CallSites, wantSites)
 	}
 }
 

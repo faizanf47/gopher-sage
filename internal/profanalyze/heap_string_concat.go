@@ -16,9 +16,9 @@ var heapStringConcatSpec = categorySpec{
 			"stringtoslicebyte), then reports the category's share of " +
 			"alloc_space. Fires above 3% share; severity is medium at 10% and " +
 			"high at 25%.",
-		Limitations: "Cannot identify the concatenating call site; conversions " +
-			"forced by third-party APIs look identical to avoidable ones in " +
-			"workspace code.",
+		Limitations: "Call-site attribution names the nearest non-stdlib caller, " +
+			"which may be a third-party library; conversions forced by " +
+			"third-party APIs look identical to avoidable ones.",
 	},
 	view: allocSpaceView,
 	prefixes: []string{

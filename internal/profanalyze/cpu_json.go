@@ -14,8 +14,9 @@ var cpuJSONSpec = categorySpec{
 			"stack frame is an encoding/json function, then reports the " +
 			"category's share of total CPU. Fires above 3% share; severity is " +
 			"medium at 10% and high at 25%.",
-		Limitations: "Cannot say which workspace call site drives the cost, and a " +
-			"high share may be legitimate for a service whose job is JSON " +
+		Limitations: "Call-site attribution names the nearest non-stdlib caller, " +
+			"which may be a third-party library rather than first-party code, " +
+			"and a high share may be legitimate for a service whose job is JSON " +
 			"transformation.",
 	},
 	view:       cpuView,

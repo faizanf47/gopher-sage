@@ -50,6 +50,13 @@ func WriteText(w io.Writer, rep Report) error {
 					strings.Join(f.Functions, ", "),
 				)
 			}
+			if len(f.CallSites) > 0 {
+				sites := make([]string, 0, len(f.CallSites))
+				for _, cs := range f.CallSites {
+					sites = append(sites, fmt.Sprintf("%s (%.2f%%)", cs.Function, cs.SharePerc))
+				}
+				fmt.Fprintf(&b, "      call sites: %s\n", strings.Join(sites, ", "))
+			}
 			if f.Recommendation != "" {
 				fmt.Fprintf(&b, "      suggestion: %s\n", f.Recommendation)
 			}

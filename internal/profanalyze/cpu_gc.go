@@ -25,7 +25,8 @@ var cpuGCSpec = categorySpec{
 			"(runtime.madvise under bgscavenge) or memory-clearing paths, so " +
 			"allocation pressure can be understated. Confidence is medium: a " +
 			"heap profile (alloc_space) is needed to locate the allocation " +
-			"sites responsible.",
+			"sites responsible. Background GC workers have no user call site, " +
+			"so attribution is partial by design.",
 	},
 	view: cpuView,
 	prefixes: []string{

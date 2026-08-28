@@ -36,7 +36,19 @@ func newCategoryDetector(spec categorySpec) Detector { return catDetector{spec} 
 
 type catDetector struct{ spec categorySpec }
 
-func (d catDetector) Meta() Metadata { return d.spec.meta }
+// categoryAttributionNote documents the engine-owned call-site
+// attribution in every category detector's published Method, so the
+// catalog can never drift from what the engine actually does.
+const categoryAttributionNote = "Each matched sample is additionally " +
+	"attributed to its nearest non-stdlib caller above the deepest " +
+	"matched frame; the top call sites are reported with their share " +
+	"of the profile."
+
+func (d catDetector) Meta() Metadata {
+	m := d.spec.meta
+	m.Method += " " + categoryAttributionNote
+	return m
+}
 
 func (d catDetector) Detect(ctx DetectCtx) []Finding {
 	s := d.spec
@@ -57,10 +69,12 @@ func (d catDetector) Detect(ctx DetectCtx) []Finding {
 		s.subject, share, s.object,
 		humanizeValue(m.value, v.Unit), humanizeValue(v.Total, v.Unit),
 	)
-	return []Finding{makeFinding(
-		s.meta, v, s.title, evidence, rec,
+	f := makeFinding(
+		d.Meta(), v, s.title, evidence, rec,
 		m.names, m.value, share, gradeShare(share), s.confidence,
-	)}
+	)
+	f.CallSites = m.callSites
+	return []Finding{f}
 }
 
 // topFlatSpec declares a ranking detector that reports the top-n

@@ -16,7 +16,8 @@ var heapJSONAllocSpec = categorySpec{
 			"severity is medium at 10% and high at 25%.",
 		Limitations: "Overlaps high-json-cpu (CPU-001) on JSON-heavy workloads — " +
 			"the two findings describe one cause from two profiles, not two " +
-			"problems. Cannot say which workspace call site drives the volume.",
+			"problems. Call-site attribution names the nearest non-stdlib " +
+			"caller, which may be a third-party library.",
 	},
 	view:       allocSpaceView,
 	prefixes:   []string{"encoding/json."},

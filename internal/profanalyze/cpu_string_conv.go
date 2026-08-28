@@ -16,8 +16,8 @@ var cpuStringConvSpec = categorySpec{
 			"stringtoslicerune, concatstrings, concatstring2..5), then reports " +
 			"the category's share of total CPU. Fires above 3% share; severity " +
 			"is medium at 10% and high at 25%.",
-		Limitations: "Cannot identify the converting call site, and conversions " +
-			"inside third-party libraries look identical to workspace code. " +
+		Limitations: "Call-site attribution names the nearest non-stdlib caller, " +
+			"which may be a third-party library rather than first-party code. " +
 			"Confidence is medium.",
 	},
 	view: cpuView,

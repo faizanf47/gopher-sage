@@ -268,6 +268,9 @@ func TestWriteText(t *testing.T) {
 					Severity:       profanalyze.SeverityHigh,
 					Confidence:     profanalyze.ConfidenceHigh,
 					Functions:      []string{"encoding/json.Marshal"},
+					CallSites: []profanalyze.CallSite{
+						{Function: "main.handler", SharePerc: 65.5},
+					},
 				}},
 			},
 			{
@@ -290,6 +293,7 @@ func TestWriteText(t *testing.T) {
 		"high severity, high confidence",
 		"encoding/json dominates CPU",
 		"high-json-cpu [CPU-001] — 70.00% of cpu",
+		"call sites: main.handler (65.50%)",
 		"suggestion: reduce marshalling in the hot path",
 		"no findings above the share threshold",
 	} {
