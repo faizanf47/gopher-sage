@@ -1,7 +1,3 @@
-// Package profile identifies and fetches Go pprof profiles from a
-// running server's net/http/pprof endpoint: typed profile kinds, URL
-// construction from any reasonable base-address spelling, and an
-// HTTP fetcher that returns the raw protobuf bytes.
 package profile
 
 import (

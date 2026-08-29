@@ -1,8 +1,3 @@
-// Package analyze runs the full gopher-sage pipeline — fetch (or
-// load), parse, detect, report — and renders the result as text or
-// JSON. It composes internal/profile (transport) with
-// internal/profanalyze (parsing + detectors) and owns the report
-// shapes both output encodings share.
 package analyze
 
 import (

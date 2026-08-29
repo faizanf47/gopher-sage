@@ -1,15 +1,15 @@
 # gopher-sage
 
-A deterministic CLI that profiles a running Go service over `net/http/pprof` and reports structured, evidence-backed performance findings. Built on the standard Go toolchain and [github.com/google/pprof](https://github.com/google/pprof) — no LLM, no network calls beyond the pprof fetch, and the same profile always produces the same report.
+A deterministic CLI that profiles a running Go service over `net/http/pprof` and reports structured, evidence-backed performance findings — built for humans and for coding agents (a [Claude Code skill](#use-with-a-coding-agent) ships in this repo). No LLM in the tool itself, no network calls beyond the pprof fetch, and the same profile always produces the same report.
 
-`gopher-sage` is read-only and advisory. It never modifies code — the engineer reviews each finding and applies the change themselves.
+`gopher-sage` is read-only and advisory. It never modifies code — the engineer (or their coding agent) reviews each finding and applies the change.
 
 ## What it does
 
-Point it at a server's pprof endpoint — or at saved profile files with `-file` — and it parses the profiles (CPU and/or heap), runs a fixed set of pattern detectors, and prints the findings ordered by severity and share of profile:
+Point it at a server's pprof endpoint — or at saved profile files with `--file` — and it parses the profiles (CPU and/or heap), runs a fixed set of pattern detectors, and prints the findings ordered by severity and share of profile:
 
 ```
-$ gopher-sage -server http://localhost:6060
+$ gopher-sage analyze --server http://localhost:6060
 
 gopher-sage report — http://localhost:6060
 
@@ -38,15 +38,15 @@ heap profile (34620 bytes; sample types: alloc_objects, alloc_space, inuse_objec
 
 Each finding cites the detector that fired, the sample type it inspected, its share of the profile **with the absolute cost humanized** (MiB of heap, ms of CPU), the symbols involved, the **call sites** — the user-code functions the cost flows through, so the report points at *your* function rather than a runtime frame — and a canonical remediation pattern. Confidence is graded honestly: a CPU profile alone cannot *prove* lock contention, so that detector reports a low-confidence lead rather than a verdict.
 
-Pass `-json` to get the same report as structured JSON for scripting or dashboards — findings carry `matched_value` + `unit` (the absolute cost) and `call_sites` (attributed user functions with their profile shares) alongside the fields shown above. `-top N` adds a pprof-style top-N function table to each profile.
+Pass `--json` to get the same report as structured JSON for scripting or dashboards — findings carry `matched_value` + `unit` (the absolute cost) and `call_sites` (attributed user functions with their profile shares) alongside the fields shown above. `--top N` adds a pprof-style top-N function table to each profile.
 
 ## Design at a glance
 
 ```
-cmd/gopher-sage (flags, wiring)
+cmd/gopher-sage (cobra command tree: analyze · detectors · agent {capture, report})
         │
         ▼
-internal/analyze          fetch → parse → detect → report
+internal/analyze          fetch → parse → detect → report; capture-to-disk
         │
         ├── internal/profile      typed pprof fetcher (HTTP → bytes)
         └── internal/profanalyze  parser + Top report + ~14 deterministic
@@ -55,7 +55,7 @@ internal/analyze          fetch → parse → detect → report
 
 The detectors (`internal/profanalyze`) are self-contained rules — CPU regex hot loops, JSON marshalling overhead, GC pressure, heap retention hotspots, unbounded buffer/map growth, and more. Each emits `Finding`s with evidence, share-of-profile, severity, and confidence.
 
-Detectors follow a registry pattern: one detector per file, self-registered into a central registry from `init()`, each with a static ID (`CPU-001`, `HEAP-007`, …) composed from its scope and a number that is never reused. Registration enforces a transparency contract — every detector must publish what it checks, how it decides (frames matched, thresholds applied), and its limitations — and `gopher-sage -detectors` prints that catalog. Findings carry the detector's ID so a report line can always be traced back to the rule and its documented blind spots.
+Detectors follow a registry pattern: one detector per file, self-registered into a central registry from `init()`, each with a static ID (`CPU-001`, `HEAP-007`, …) composed from its scope and a number that is never reused. Registration enforces a transparency contract — every detector must publish what it checks, how it decides (frames matched, thresholds applied), and its limitations — and `gopher-sage detectors` prints that catalog. Findings carry the detector's ID so a report line can always be traced back to the rule and its documented blind spots.
 
 Most detectors are *declarations, not implementations*: a `categorySpec` (the view to read, the frame prefixes that define the category, the report text) handed to a shared engine that owns matching, thresholding, severity grading, call-site attribution, and evidence formatting. Adding one is ~25 declarative lines. Detectors with genuinely unique logic (the cross-view retention detector, for instance) implement `Detector` directly. Either way: one file per detector, the next free number in its scope, `MustRegister` from `init()` — the registry rejects duplicate IDs or names and missing metadata at startup.
 
@@ -72,7 +72,7 @@ make build   # produces bin/gopher-sage
 ### 2. Run it against a server with pprof enabled
 
 ```sh
-./bin/gopher-sage -server http://localhost:6060
+./bin/gopher-sage analyze --server http://localhost:6060
 ```
 
 The target only needs the standard `net/http/pprof` handler mounted. A CPU capture blocks for the whole sample window (30s by default), then the heap capture returns promptly.
@@ -80,25 +80,24 @@ The target only needs the standard `net/http/pprof` handler mounted. A CPU captu
 ### Or analyze saved profiles
 
 ```sh
-./bin/gopher-sage -file cpu.pb.gz,heap.pb.gz -top 5
+./bin/gopher-sage analyze --file cpu.pb.gz,heap.pb.gz --top 5
 ```
 
-`-file` takes profiles captured earlier (a production grab, a CI artifact) and infers each file's kind from the sample types it carries — no `-type` needed.
+`--file` takes profiles captured earlier (a production grab, a CI artifact) and infers each file's kind from the sample types it carries — no `--type` needed.
 
-### Flags
+### Commands
 
-| Flag | Default | Purpose |
-|---|---|---|
-| `-server` | — | Base URL of the pprof endpoint. `http://host:6060` and `http://host:6060/debug/pprof/` both work |
-| `-file` | — | Comma-separated saved pprof files to analyze instead of a live server (mutually exclusive with `-server`) |
-| `-type` | `cpu,heap` | Comma-separated profile types to capture from `-server` |
-| `-seconds` | `30` | CPU sample window; `0` uses the server default |
-| `-min-share` | `0` | Drop findings below this share-of-profile percent (detectors already apply a 3% noise floor) |
-| `-top` | `0` | Include the top-N functions by cumulative value alongside each profile's findings |
-| `-json` | `false` | Emit the report (or catalog) as JSON instead of text |
-| `-detectors` | `false` | List the registered detectors — ID, what each checks, how it works, its limitations — and exit |
-| `-version` | `false` | Print the version (module version + VCS revision) and exit |
-| `-v` | `false` | Verbose logging |
+> Upgrading? The flat interface (`gopher-sage -server …`) became subcommands: `-server` → `analyze --server`, `-detectors` → `detectors`, and long flags now take two dashes.
+
+| Command | Purpose |
+|---|---|
+| `analyze --server URL \| --file a,b` | Analyze a live server or saved files. Also: `--type cpu,heap`, `--seconds 30`, `--min-share P`, `--top N`, `--json`, `-v` |
+| `detectors [--json]` | The transparency catalog: each detector's ID, what it checks, how it decides, its limitations |
+| `agent capture --server URL -o DIR` | Fetch profiles and write `DIR/<type>.pb.gz` for later analysis and before/after comparison |
+| `agent report --dir DIR \| --file a,b` | Findings for captured profiles — the agent-facing twin of `analyze --file` |
+| `completion <shell>` | Shell completions |
+
+`http://host:6060` and `http://host:6060/debug/pprof/` both work as `--server` values; `--version` prints the module version + VCS revision.
 
 ### Try it against the bundled "leaky server"
 
@@ -107,7 +106,7 @@ The target only needs the standard `net/http/pprof` handler mounted. A CPU captu
 ```sh
 make leaky-server-start           # background server on :6060
 make leaky-server-traffic &       # generate load in another shell
-./bin/gopher-sage -server http://localhost:6060
+./bin/gopher-sage analyze --server http://localhost:6060
 ```
 
 When you are done:
@@ -116,14 +115,40 @@ When you are done:
 make leaky-server-stop
 ```
 
+## Use with a coding agent
+
+The repo ships a [Claude Code skill](skills/gopher-sage/SKILL.md) that turns any coding agent session into a profile-guided optimization loop: the agent captures profiles from your running service, reads the findings (whose `call sites:` lines name *your* functions), edits the code, re-captures, and compares the before/after reports to prove the win.
+
+Install the skill user-wide or into a project:
+
+```sh
+make skill-install                                  # → ~/.claude/skills/gopher-sage
+# or per-project:
+mkdir -p .claude/skills && cp -r skills/gopher-sage .claude/skills/
+```
+
+Then, in your own Go project with the service running under load, ask the agent to "find and fix the performance bottlenecks" — the skill drives the loop:
+
+```sh
+gopher-sage agent capture --server http://localhost:6060 -o .gopher-sage/before
+gopher-sage agent report  --dir .gopher-sage/before        # edit the call sites it names
+# rebuild, restart, same load…
+gopher-sage agent capture --server http://localhost:6060 -o .gopher-sage/after
+gopher-sage agent report  --dir .gopher-sage/after --json  # agent compares by detector ID
+```
+
+The `agent` subcommands are deliberately agent-shaped: deterministic compact text (or `--json`), no ANSI, no prompts, chainable output (`capture` prints the exact `report` command to run next), and stable detector IDs to join before/after findings on. `gopher-sage agent --help` carries the whole workflow, so even an agent without the skill can discover it.
+
 ## Project layout
 
 ```
-cmd/gopher-sage/         CLI entry point: flags, wiring, output encoding
+cmd/gopher-sage/         cobra command tree: analyze, detectors, agent {capture, report}
 internal/
-  analyze/               pipeline: fetch → parse → detect → render
+  analyze/               pipeline: fetch → parse → detect → render; capture-to-disk
   profile/               typed pprof fetcher (HTTP → bytes)
   profanalyze/           pprof parser + deterministic CPU/heap detectors
+skills/
+  gopher-sage/           Claude Code skill driving the agent optimize loop
 fixtures/
   sources/leaky_server/  deliberately bad Go program for live demos
   profiles/              captured pprof fixtures (cpu/heap/allocs/...)

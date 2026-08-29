@@ -9,11 +9,16 @@ LEAKY_SERVER_LOG := $(BIN_DIR)/$(LEAKY_SERVER_BINARY).log
 LEAKY_SERVER_URL := http://localhost:6060/work
 TRAFFIC_CONCURRENCY ?= 10
 
-.PHONY: build clean leaky-server-start leaky-server-stop leaky-server-traffic
+.PHONY: build clean skill-install leaky-server-start leaky-server-stop leaky-server-traffic
 build: clean
 	go build -o $(BIN_DIR)/$(BINARY) $(CMD)
 clean:
 	rm -f $(BIN_DIR)/$(BINARY)
+
+skill-install:
+	mkdir -p $(HOME)/.claude/skills
+	cp -r skills/gopher-sage $(HOME)/.claude/skills/
+	@echo "installed skill to $(HOME)/.claude/skills/gopher-sage"
 
 leaky-server-start:
 	@mkdir -p $(BIN_DIR)
