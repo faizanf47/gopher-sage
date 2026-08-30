@@ -1,3 +1,6 @@
+// Command gopher-sage captures Go pprof profiles — live from a
+// server's net/http/pprof endpoint or from saved files — and reports
+// deterministic, evidence-backed performance findings.
 package main
 
 import (

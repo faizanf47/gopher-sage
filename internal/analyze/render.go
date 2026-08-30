@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/faizanf47/gopher-sage/internal/profanalyze"
+	"github.com/faizanf47/gopher-sage/internal/profile"
 )
 
 // WriteText renders the report as human-readable text. The layout is
@@ -29,6 +30,7 @@ func WriteText(w io.Writer, rep Report) error {
 			&b, "\n%s profile (%d bytes; sample types: %s)\n",
 			label, pr.Bytes, strings.Join(pr.SampleTypes, ", "),
 		)
+		writeTotalsLine(&b, pr)
 		writeTopTable(&b, pr.Top)
 		if len(pr.Findings) == 0 {
 			b.WriteString("  no findings above the share threshold\n")
@@ -65,6 +67,25 @@ func WriteText(w io.Writer, rep Report) error {
 
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// writeTotalsLine renders the profile-wide sample-column totals —
+// the denominators behind every finding's share. The capture window
+// is appended for CPU profiles only: heap profiles record process
+// uptime in the same field, which is not a window.
+func writeTotalsLine(b *strings.Builder, pr ProfileReport) {
+	if len(pr.Totals) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(pr.Totals))
+	for _, t := range pr.Totals {
+		parts = append(parts, fmt.Sprintf("%s %s", t.SampleType, profanalyze.HumanizeValue(t.Total, t.Unit)))
+	}
+	fmt.Fprintf(b, "  totals: %s", strings.Join(parts, ", "))
+	if pr.Type == profile.TypeCPU && pr.DurationNanos > 0 {
+		fmt.Fprintf(b, " (window %s)", profanalyze.HumanizeValue(pr.DurationNanos, "nanoseconds"))
+	}
+	b.WriteString("\n")
 }
 
 // writeTopTable renders the optional top-N function table under a

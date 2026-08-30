@@ -1,3 +1,8 @@
+// Package analyze runs the full gopher-sage pipeline — fetch (or
+// load), parse, detect, report — and renders the result as text or
+// JSON. It composes internal/profile (transport) with
+// internal/profanalyze (parsing + detectors) and owns the report
+// shapes both output encodings share.
 package analyze
 
 import (
@@ -93,6 +98,17 @@ type ProfileReport struct {
 	Source      string   `json:"source,omitempty"`
 	Bytes       int      `json:"bytes"`
 	SampleTypes []string `json:"sample_types"`
+	// Totals is the profile-wide sum of every sample column, in
+	// profile column order — the denominators behind every finding's
+	// SharePerc, machine-readable so before/after comparisons do not
+	// have to scrape evidence prose.
+	Totals []profanalyze.SampleTotal `json:"totals"`
+	// DurationNanos is the profile's recorded duration: the sample
+	// window for CPU profiles. Go's heap profiler records time since
+	// process start here instead — useful context for cumulative
+	// alloc_* comparisons, but not a capture window. Zero when the
+	// profile carries no duration.
+	DurationNanos int64 `json:"duration_nanos,omitempty"`
 	// Top is the top-N functions by cumulative value, present only
 	// when Options.TopN / FileOptions.TopN is positive.
 	Top      *profanalyze.TopReport `json:"top,omitempty"`
@@ -268,9 +284,11 @@ func buildProfileReport(prof *profanalyze.Profile, nbytes int, minShare float64,
 	}
 
 	pr := ProfileReport{
-		Bytes:       nbytes,
-		SampleTypes: prof.AvailableSampleTypes(),
-		Findings:    findings,
+		Bytes:         nbytes,
+		SampleTypes:   prof.AvailableSampleTypes(),
+		Totals:        profanalyze.Totals(prof),
+		DurationNanos: prof.Raw.DurationNanos,
+		Findings:      findings,
 	}
 	if topN > 0 {
 		top, err := profanalyze.Top(prof, profanalyze.TopOptions{Limit: topN})

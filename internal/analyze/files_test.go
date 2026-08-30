@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/faizanf47/gopher-sage/internal/profanalyze"
 	"github.com/faizanf47/gopher-sage/internal/profile"
 )
 
@@ -24,7 +26,9 @@ func writeProfileFile(t *testing.T, name string, raw []byte) string {
 func TestRunFiles_inferKindAndReport(t *testing.T) {
 	t.Parallel()
 
-	cpuPath := writeProfileFile(t, "cpu.pb.gz", marshalProfile(t, heavyJSONCPUProfile()))
+	cpuProf := heavyJSONCPUProfile()
+	cpuProf.DurationNanos = 20_000_000_000
+	cpuPath := writeProfileFile(t, "cpu.pb.gz", marshalProfile(t, cpuProf))
 
 	// The shared heap fixture only populates the alloc columns; give
 	// it live memory too so the inuse_space-based top table (and any
@@ -63,6 +67,13 @@ func TestRunFiles_inferKindAndReport(t *testing.T) {
 	}
 	if len(cpu.Findings) == 0 {
 		t.Error("CPU profile produced no findings, want the JSON detector to fire")
+	}
+	wantTotals := []profanalyze.SampleTotal{{SampleType: "cpu", Unit: "nanoseconds", Total: 1000}}
+	if !reflect.DeepEqual(cpu.Totals, wantTotals) {
+		t.Errorf("Profiles[0].Totals = %+v, want %+v", cpu.Totals, wantTotals)
+	}
+	if cpu.DurationNanos != 20_000_000_000 {
+		t.Errorf("Profiles[0].DurationNanos = %d, want 20s", cpu.DurationNanos)
 	}
 
 	for i, pr := range rep.Profiles {
