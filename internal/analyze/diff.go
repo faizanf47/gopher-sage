@@ -355,21 +355,24 @@ func diffTotals(before, after []profanalyze.SampleTotal) []TotalDiff {
 }
 
 // diffTopEntries joins two top-frame tables by function on their
-// flat values, keeping the five largest movements by either side.
+// cumulative values (for goroutine profiles that is "goroutines
+// whose stack passes through this function" — the count that blames
+// the spawner, not the parked leaf), keeping the five largest by
+// either side.
 func diffTopEntries(before, after *profanalyze.TopReport) []TopDelta {
 	if before == nil || after == nil {
 		return nil
 	}
 	byFn := make(map[string]*TopDelta)
 	for _, e := range before.Entries {
-		byFn[e.Function] = &TopDelta{Function: e.Function, Before: e.Flat}
+		byFn[e.Function] = &TopDelta{Function: e.Function, Before: e.Cum}
 	}
 	for _, e := range after.Entries {
 		if d, ok := byFn[e.Function]; ok {
-			d.After = e.Flat
+			d.After = e.Cum
 			continue
 		}
-		byFn[e.Function] = &TopDelta{Function: e.Function, After: e.Flat}
+		byFn[e.Function] = &TopDelta{Function: e.Function, After: e.Cum}
 	}
 	out := make([]TopDelta, 0, len(byFn))
 	for _, d := range byFn {

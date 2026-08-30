@@ -222,10 +222,10 @@ func TestDiff_goroutineSummary(t *testing.T) {
 		}}}
 	}
 	before := mk(141053,
-		profanalyze.TopEntry{Function: "main.leakyWorker", Flat: 96250},
-		profanalyze.TopEntry{Function: "main.emitMetric", Flat: 44797},
+		profanalyze.TopEntry{Function: "main.leakyWorker", Cum: 96250},
+		profanalyze.TopEntry{Function: "main.emitMetric", Cum: 44797},
 	)
-	after := mk(4, profanalyze.TopEntry{Function: "runtime.gopark", Flat: 4})
+	after := mk(4, profanalyze.TopEntry{Function: "runtime.gopark", Cum: 4})
 
 	d, err := Diff(before, after, "b", "a")
 	if err != nil {

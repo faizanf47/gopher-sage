@@ -341,15 +341,16 @@ func errNotDetectable(prof *profanalyze.Profile) error {
 const summaryTopLimit = 10
 
 // buildSummaryReport reports a profile the detector set does not
-// cover: totals plus a top-frames-by-flat table, never findings. For
-// a goroutine profile this reads as "goroutines: N" plus the frames
-// holding them — enough to spot a leak without a dedicated detector.
+// cover: totals plus a top-frames table, never findings. Frames rank
+// by cumulative value: a leaked goroutine's leaf is runtime.gopark,
+// and only the cumulative count attributes it to the user function
+// that spawned it — "N goroutines in main.leakyWorker".
 func buildSummaryReport(prof *profanalyze.Profile, nbytes, topN int) (ProfileReport, error) {
 	if topN <= 0 {
 		topN = summaryTopLimit
 	}
 	top, err := profanalyze.Top(prof, profanalyze.TopOptions{
-		SortBy: profanalyze.SortByFlat,
+		SortBy: profanalyze.SortByCum,
 		Limit:  topN,
 	})
 	if err != nil {
