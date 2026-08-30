@@ -63,18 +63,25 @@ func TestAgent_captureThenReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read heap fixture: %v", err)
 	}
+	goroutineRaw, err := os.ReadFile(fixturePath(t, "goroutine.pb.gz"))
+	if err != nil {
+		t.Fatalf("read goroutine fixture: %v", err)
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/debug/pprof/profile":
 			_, _ = w.Write(cpuRaw)
 		case "/debug/pprof/heap":
 			_, _ = w.Write(heapRaw)
+		case "/debug/pprof/goroutine":
+			_, _ = w.Write(goroutineRaw)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer srv.Close()
 
+	// No --types: the default must fetch cpu, heap AND goroutine.
 	dir := filepath.Join(t.TempDir(), "before")
 	stdout, err := execCLI(t, "agent", "capture", "--server", srv.URL, "--seconds", "1", "-o", dir)
 	if err != nil {
@@ -83,6 +90,7 @@ func TestAgent_captureThenReport(t *testing.T) {
 	for _, want := range []string{
 		"wrote " + filepath.Join(dir, "cpu.pb.gz"),
 		"wrote " + filepath.Join(dir, "heap.pb.gz"),
+		"wrote " + filepath.Join(dir, "goroutine.pb.gz"),
 		"next: gopher-sage agent report --dir " + dir,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -108,8 +116,8 @@ func TestAgent_captureThenReport(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
 		t.Fatalf("report JSON does not decode into analyze.Report: %v", err)
 	}
-	if len(rep.Profiles) != 2 {
-		t.Errorf("JSON report has %d profiles, want 2", len(rep.Profiles))
+	if len(rep.Profiles) != 3 {
+		t.Errorf("JSON report has %d profiles, want 3 (cpu, heap, goroutine summary)", len(rep.Profiles))
 	}
 }
 

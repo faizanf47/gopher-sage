@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -62,21 +63,26 @@ func versionString() string {
 	return version
 }
 
-// parseTypes turns a profile-types flag value into the types to
-// capture, preserving the order the user asked for.
-func parseTypes(s string) ([]profile.Type, error) {
+// parseTypes turns a profile-types flag value into profile types,
+// preserving the order the user asked for and rejecting anything
+// outside allowed — one parser, two policies (analyze permits only
+// the detector-covered cpu/heap; agent capture permits every pprof
+// endpoint).
+func parseTypes(s string, allowed []profile.Type) ([]profile.Type, error) {
+	supported := make([]string, len(allowed))
+	for i, t := range allowed {
+		supported[i] = string(t)
+	}
 	var out []profile.Type
 	for _, part := range splitList(s) {
 		t := profile.Type(strings.ToLower(part))
-		switch t {
-		case profile.TypeCPU, profile.TypeHeap:
-			out = append(out, t)
-		default:
-			return nil, fmt.Errorf("unsupported profile type %q (supported: cpu, heap)", part)
+		if !slices.Contains(allowed, t) {
+			return nil, fmt.Errorf("unsupported profile type %q (supported: %s)", part, strings.Join(supported, ", "))
 		}
+		out = append(out, t)
 	}
 	if len(out) == 0 {
-		return nil, errors.New("profile types must name at least one of: cpu, heap")
+		return nil, fmt.Errorf("profile types must name at least one of: %s", strings.Join(supported, ", "))
 	}
 	return out, nil
 }

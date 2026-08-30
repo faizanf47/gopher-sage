@@ -66,7 +66,7 @@ func newAgentCaptureCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := newLogger(verbose)
-			profTypes, err := parseTypes(types)
+			profTypes, err := parseTypes(types, profile.AllTypes())
 			if err != nil {
 				return err
 			}
@@ -99,7 +99,9 @@ func newAgentCaptureCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&server, "server", "", "base URL of the target server's pprof endpoint (required), e.g. http://localhost:6060")
 	cmd.Flags().StringVarP(&outDir, "out", "o", "", "directory for the captured <type>.pb.gz files (required), e.g. .gopher-sage/before")
-	cmd.Flags().StringVar(&types, "types", "cpu,heap", "comma-separated profile types to capture: cpu, heap")
+	cmd.Flags().StringVar(&types, "types", "cpu,heap,goroutine",
+		"comma-separated profile types to capture: cpu, heap, allocs, goroutine, block, mutex, threadcreate "+
+			"(block and mutex are empty unless the target sets runtime.SetBlockProfileRate / SetMutexProfileFraction)")
 	cmd.Flags().IntVar(&seconds, "seconds", 30, "CPU sample window in seconds (0 uses the server default)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the written files as JSON instead of text")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose logging")

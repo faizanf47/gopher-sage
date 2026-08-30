@@ -61,7 +61,7 @@ func newAnalyzeCmd() *cobra.Command {
 				})
 			} else {
 				var profTypes []profile.Type
-				profTypes, err = parseTypes(types)
+				profTypes, err = parseTypes(types, []profile.Type{profile.TypeCPU, profile.TypeHeap})
 				if err != nil {
 					return err
 				}

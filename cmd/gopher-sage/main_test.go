@@ -52,10 +52,11 @@ func TestParseTypes(t *testing.T) {
 			wantErr: true,
 		},
 	}
+	cpuHeap := []profile.Type{profile.TypeCPU, profile.TypeHeap}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := parseTypes(tt.in)
+			got, err := parseTypes(tt.in, cpuHeap)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("parseTypes(%q): want error, got %v", tt.in, got)
@@ -69,6 +70,23 @@ func TestParseTypes(t *testing.T) {
 				t.Errorf("parseTypes(%q) = %v, want %v", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestParseTypes_widerAllowedSet checks the capture policy: the same
+// parser accepts every pprof endpoint when told to.
+func TestParseTypes_widerAllowedSet(t *testing.T) {
+	t.Parallel()
+	got, err := parseTypes("goroutine,block", profile.AllTypes())
+	if err != nil {
+		t.Fatalf("parseTypes: %v", err)
+	}
+	want := []profile.Type{profile.TypeGoroutine, profile.TypeBlock}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if _, err := parseTypes("goroutine", []profile.Type{profile.TypeCPU, profile.TypeHeap}); err == nil {
+		t.Error("cpu/heap policy accepted goroutine")
 	}
 }
 

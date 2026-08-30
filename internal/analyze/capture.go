@@ -38,12 +38,10 @@ func (o CaptureOptions) validate() error {
 		return fmt.Errorf("capture: at least one profile type is required")
 	}
 	for _, t := range o.Types {
-		switch t {
-		case profile.TypeCPU, profile.TypeHeap:
-		default:
+		if !t.Valid() {
 			return fmt.Errorf(
-				"capture: unsupported profile type %q (the detector set covers %q and %q)",
-				t, profile.TypeCPU, profile.TypeHeap,
+				"capture: unsupported profile type %q (want one of %v)",
+				t, profile.AllTypes(),
 			)
 		}
 	}

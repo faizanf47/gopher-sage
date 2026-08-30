@@ -63,6 +63,29 @@ func TestCapture_writesValidatedProfiles(t *testing.T) {
 	}
 }
 
+func TestCapture_goroutineProfile(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(realFixture(t, "goroutine.pb.gz"))
+	if err != nil {
+		t.Fatalf("read goroutine fixture: %v", err)
+	}
+	fetcher := stubFetcher{byType: map[profile.Type][]byte{profile.TypeGoroutine: raw}}
+	dir := t.TempDir()
+
+	files, err := Capture(context.Background(), fetcher, CaptureOptions{
+		Server: "http://localhost:6060",
+		Types:  []profile.Type{profile.TypeGoroutine},
+		OutDir: dir,
+	})
+	if err != nil {
+		t.Fatalf("Capture: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != filepath.Join(dir, "goroutine.pb.gz") {
+		t.Errorf("files = %+v, want one goroutine.pb.gz", files)
+	}
+}
+
 func TestCapture_overwritesExistingFile(t *testing.T) {
 	t.Parallel()
 
@@ -146,7 +169,7 @@ func TestCapture_validation(t *testing.T) {
 	}{
 		{"missing server", func(o *CaptureOptions) { o.Server = "" }, "server URL"},
 		{"no types", func(o *CaptureOptions) { o.Types = nil }, "at least one"},
-		{"unsupported type", func(o *CaptureOptions) { o.Types = []profile.Type{profile.TypeMutex} }, "unsupported"},
+		{"unsupported type", func(o *CaptureOptions) { o.Types = []profile.Type{profile.Type("wat")} }, "unsupported"},
 		{"negative seconds", func(o *CaptureOptions) { o.Seconds = -1 }, "non-negative"},
 		{"missing out dir", func(o *CaptureOptions) { o.OutDir = "" }, "output directory"},
 	}
