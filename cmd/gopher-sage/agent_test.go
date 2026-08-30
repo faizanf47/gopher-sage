@@ -195,6 +195,52 @@ func TestAgentCapture_json(t *testing.T) {
 	}
 }
 
+// TestAgent_diffSelfIsUnchanged runs the full diff command over one
+// fixture directory against itself: everything must read unchanged,
+// the goroutine totals must render, and --json must decode.
+func TestAgent_diffSelfIsUnchanged(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, name := range []string{"cpu.pb.gz", "heap.pb.gz", "goroutine.pb.gz"} {
+		raw, err := os.ReadFile(fixturePath(t, name))
+		if err != nil {
+			t.Fatalf("read fixture %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), raw, 0o644); err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+	}
+
+	stdout, err := execCLI(t, "agent", "diff", "--before", dir, "--after", dir)
+	if err != nil {
+		t.Fatalf("agent diff: %v", err)
+	}
+	if !strings.Contains(stdout, "[unchanged") {
+		t.Errorf("self-diff output missing unchanged labels:\n%s", stdout)
+	}
+	for _, forbidden := range []string{"[worse", "[improved", "[fixed", "[new "} {
+		if strings.Contains(stdout, forbidden) {
+			t.Errorf("self-diff output contains %q:\n%s", forbidden, stdout)
+		}
+	}
+	if !strings.Contains(stdout, "totals: goroutine ") {
+		t.Errorf("self-diff output missing goroutine totals:\n%s", stdout)
+	}
+
+	stdout, err = execCLI(t, "agent", "diff", "--before", dir, "--after", dir, "--json")
+	if err != nil {
+		t.Fatalf("agent diff --json: %v", err)
+	}
+	var d analyze.DiffReport
+	if err := json.Unmarshal([]byte(stdout), &d); err != nil {
+		t.Fatalf("diff JSON does not decode into analyze.DiffReport: %v", err)
+	}
+	if len(d.Profiles) != 3 || len(d.Warnings) != 0 {
+		t.Errorf("diff JSON = %d profiles, %d warnings; want 3 and 0", len(d.Profiles), len(d.Warnings))
+	}
+}
+
 func TestResolveProfileArgs(t *testing.T) {
 	t.Parallel()
 

@@ -111,6 +111,95 @@ func writeTopTable(b *strings.Builder, top *profanalyze.TopReport) {
 	}
 }
 
+// WriteDiffText renders a DiffReport as human-readable text: per
+// profile, the total deltas, one labeled line per finding, and top
+// frame deltas for summary profiles, with warnings trailing.
+func WriteDiffText(w io.Writer, d DiffReport) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "gopher-sage diff — %s → %s\n", d.Before, d.After)
+
+	for _, pd := range d.Profiles {
+		fmt.Fprintf(&b, "\n%s profile", pd.Type)
+		switch {
+		case pd.BeforeOnly:
+			b.WriteString(" (before only)\n")
+			continue
+		case pd.AfterOnly:
+			b.WriteString(" (after only)\n")
+			continue
+		}
+		if pd.Type == profile.TypeCPU && pd.BeforeDurationNanos > 0 && pd.AfterDurationNanos > 0 {
+			fmt.Fprintf(&b, " (window %s → %s)",
+				profanalyze.HumanizeValue(pd.BeforeDurationNanos, "nanoseconds"),
+				profanalyze.HumanizeValue(pd.AfterDurationNanos, "nanoseconds"),
+			)
+		}
+		b.WriteString("\n")
+
+		if len(pd.Totals) > 0 {
+			parts := make([]string, 0, len(pd.Totals))
+			for _, td := range pd.Totals {
+				parts = append(parts, fmt.Sprintf("%s %s → %s%s",
+					td.SampleType,
+					profanalyze.HumanizeValue(td.Before, td.Unit),
+					profanalyze.HumanizeValue(td.After, td.Unit),
+					deltaSuffix(td.DeltaPerc, td.Before),
+				))
+			}
+			fmt.Fprintf(&b, "  totals: %s\n", strings.Join(parts, ", "))
+		}
+
+		for _, fd := range pd.Findings {
+			writeFindingDiffLine(&b, fd)
+		}
+		for _, td := range pd.TopDeltas {
+			fmt.Fprintf(&b, "    %s  %d → %d\n", td.Function, td.Before, td.After)
+		}
+	}
+
+	if len(d.Warnings) > 0 {
+		b.WriteString("\nwarnings:\n")
+		for _, warning := range d.Warnings {
+			fmt.Fprintf(&b, "  - %s\n", warning)
+		}
+	}
+
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// writeFindingDiffLine renders one labeled finding movement.
+func writeFindingDiffLine(b *strings.Builder, fd FindingDiff) {
+	fmt.Fprintf(b, "  [%-12s] %s %s — ", fd.Label, fd.ID, fd.Detector)
+	switch fd.Label {
+	case LabelFixed:
+		fmt.Fprintf(b, "%.2f%% → not detected; %s → 0\n",
+			fd.BeforeShare, profanalyze.HumanizeValue(fd.BeforeValue, fd.Unit))
+	case LabelNew:
+		fmt.Fprintf(b, "not detected → %.2f%% (%s)\n",
+			fd.AfterShare, profanalyze.HumanizeValue(fd.AfterValue, fd.Unit))
+	default:
+		fmt.Fprintf(b, "%.2f%% → %.2f%% (%+.2f pts); %s → %s%s\n",
+			fd.BeforeShare, fd.AfterShare, fd.ShareDeltaPts,
+			profanalyze.HumanizeValue(fd.BeforeValue, fd.Unit),
+			profanalyze.HumanizeValue(fd.AfterValue, fd.Unit),
+			deltaSuffix(fd.ValueDeltaPerc, fd.BeforeValue),
+		)
+	}
+	if fd.Note != "" {
+		fmt.Fprintf(b, "                 note: %s\n", fd.Note)
+	}
+}
+
+// deltaSuffix renders a relative delta like " (+27%)", or nothing
+// when the baseline was zero (undefined ratio).
+func deltaSuffix(deltaPerc float64, before int64) string {
+	if before == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%+.0f%%)", deltaPerc)
+}
+
 // WriteCatalog renders the detector catalog as human-readable text:
 // every registered detector's static ID, what it checks, how it
 // works, and its limitations.

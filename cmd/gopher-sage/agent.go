@@ -45,7 +45,66 @@ func newAgentCmd() *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(newAgentCaptureCmd(), newAgentReportCmd())
+	cmd.AddCommand(newAgentCaptureCmd(), newAgentReportCmd(), newAgentDiffCmd())
+	return cmd
+}
+
+// diffTopN guarantees summary profiles carry a top table for the
+// diff's frame deltas; cpu/heap findings ignore it.
+const diffTopN = 10
+
+// newAgentDiffCmd mechanically compares two capture directories —
+// the terminal step of every optimize loop. It labels movements and
+// warns about confounders; it renders no verdict and gates nothing.
+func newAgentDiffCmd() *cobra.Command {
+	var (
+		beforeDir string
+		afterDir  string
+		jsonOut   bool
+		verbose   bool
+	)
+	cmd := &cobra.Command{
+		Use:   "diff",
+		Short: "Compare two capture directories: per-finding deltas by detector ID",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			logger := newLogger(verbose)
+			run := func(dir string) (analyze.Report, error) {
+				paths, err := resolveProfileArgs(dir, "")
+				if err != nil {
+					return analyze.Report{}, err
+				}
+				return analyze.RunFiles(analyze.FileOptions{
+					Paths:   paths,
+					TopN:    diffTopN,
+					Lenient: true,
+					Logger:  logger,
+				})
+			}
+			before, err := run(beforeDir)
+			if err != nil {
+				return fmt.Errorf("before side: %w", err)
+			}
+			after, err := run(afterDir)
+			if err != nil {
+				return fmt.Errorf("after side: %w", err)
+			}
+			d, err := analyze.Diff(before, after, beforeDir, afterDir)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return writeJSON(cmd.OutOrStdout(), d)
+			}
+			return analyze.WriteDiffText(cmd.OutOrStdout(), d)
+		},
+	}
+	cmd.Flags().StringVar(&beforeDir, "before", "", "directory of the baseline capture (required)")
+	cmd.Flags().StringVar(&afterDir, "after", "", "directory of the capture taken after the code change (required)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the diff as JSON instead of text")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose logging")
+	_ = cmd.MarkFlagRequired("before")
+	_ = cmd.MarkFlagRequired("after")
 	return cmd
 }
 
