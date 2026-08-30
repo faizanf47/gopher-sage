@@ -5,12 +5,12 @@ import (
 	"strconv"
 )
 
-// humanizeValue renders a raw sample value in its pprof unit for
+// HumanizeValue renders a raw sample value in its pprof unit for
 // humans: bytes scale through KiB/MiB/GiB/TiB (base 1024, one
 // decimal), nanoseconds through µs/ms/s, counts print plain, and
 // unknown units fall back to "<value> <unit>". Deterministic — no
 // locale, fixed precision — so report output stays stable.
-func humanizeValue(v int64, unit string) string {
+func HumanizeValue(v int64, unit string) string {
 	switch unit {
 	case "bytes":
 		return humanBytes(v)

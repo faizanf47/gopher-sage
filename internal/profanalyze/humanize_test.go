@@ -28,8 +28,8 @@ func TestHumanizeValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
 			t.Parallel()
-			if got := humanizeValue(tt.v, tt.unit); got != tt.want {
-				t.Errorf("humanizeValue(%d, %q) = %q, want %q", tt.v, tt.unit, got, tt.want)
+			if got := HumanizeValue(tt.v, tt.unit); got != tt.want {
+				t.Errorf("HumanizeValue(%d, %q) = %q, want %q", tt.v, tt.unit, got, tt.want)
 			}
 		})
 	}

@@ -67,7 +67,7 @@ func (d catDetector) Detect(ctx DetectCtx) []Finding {
 	evidence := fmt.Sprintf(
 		"%s account for %.2f%% of %s (%s of %s).",
 		s.subject, share, s.object,
-		humanizeValue(m.value, v.Unit), humanizeValue(v.Total, v.Unit),
+		HumanizeValue(m.value, v.Unit), HumanizeValue(v.Total, v.Unit),
 	)
 	f := makeFinding(
 		d.Meta(), v, s.title, evidence, rec,
@@ -116,7 +116,7 @@ func (d topFlatDetector) Detect(ctx DetectCtx) []Finding {
 	evidence := fmt.Sprintf(
 		"%s account for %.2f%% of %s (%s of %s).",
 		s.subject, share, s.object,
-		humanizeValue(matched, v.Unit), humanizeValue(v.Total, v.Unit),
+		HumanizeValue(matched, v.Unit), HumanizeValue(v.Total, v.Unit),
 	)
 	return []Finding{makeFinding(
 		s.meta, v, s.title, evidence, s.recommend,
