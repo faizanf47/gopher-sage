@@ -93,8 +93,9 @@ The target only needs the standard `net/http/pprof` handler mounted. A CPU captu
 |---|---|
 | `analyze --server URL \| --file a,b` | Analyze a live server or saved files. Also: `--type cpu,heap`, `--seconds 30`, `--min-share P`, `--top N`, `--json`, `-v` |
 | `detectors [--json]` | The transparency catalog: each detector's ID, what it checks, how it decides, its limitations |
-| `agent capture --server URL -o DIR` | Fetch profiles and write `DIR/<type>.pb.gz` for later analysis and before/after comparison |
-| `agent report --dir DIR \| --file a,b` | Findings for captured profiles — the agent-facing twin of `analyze --file` |
+| `agent capture --server URL -o DIR` | Fetch profiles (default `cpu,heap,goroutine`; block/mutex opt-in) and write `DIR/<type>.pb.gz` |
+| `agent report --dir DIR \| --file a,b` | Findings for captured profiles; goroutine/block/mutex render as summaries (totals + top frames) |
+| `agent diff --before DIR --after DIR` | Mechanical before/after comparison: findings joined by detector ID, labeled fixed/new/improved/worse/unchanged/inconclusive |
 | `completion <shell>` | Shell completions |
 
 `http://host:6060` and `http://host:6060/debug/pprof/` both work as `--server` values; `--version` prints the module version + VCS revision.
@@ -131,18 +132,18 @@ Then, in your own Go project with the service running under load, ask the agent 
 
 ```sh
 gopher-sage agent capture --server http://localhost:6060 -o .gopher-sage/before
-gopher-sage agent report  --dir .gopher-sage/before        # edit the call sites it names
+gopher-sage agent report  --dir .gopher-sage/before --top 15   # edit the call sites it names
 # rebuild, restart, same load…
 gopher-sage agent capture --server http://localhost:6060 -o .gopher-sage/after
-gopher-sage agent report  --dir .gopher-sage/after --json  # agent compares by detector ID
+gopher-sage agent diff --before .gopher-sage/before --after .gopher-sage/after
 ```
 
-The `agent` subcommands are deliberately agent-shaped: deterministic compact text (or `--json`), no ANSI, no prompts, chainable output (`capture` prints the exact `report` command to run next), and stable detector IDs to join before/after findings on. `gopher-sage agent --help` carries the whole workflow, so even an agent without the skill can discover it.
+The diff joins findings by their stable detector IDs and labels each one mechanically — `improved`/`worse` require share *and* absolute value to agree (shares redistribute when you fix the top hotspot), `alloc_*` rises read `inconclusive` because those counters accumulate with process uptime, and goroutine totals diff too (`goroutines: 141053 → 4`). No verdict, no exit-code gate: the agent reads the labels and judges. `gopher-sage agent --help` carries the whole workflow, so even an agent without the skill can discover it.
 
 ## Project layout
 
 ```
-cmd/gopher-sage/         cobra command tree: analyze, detectors, agent {capture, report}
+cmd/gopher-sage/         cobra command tree: analyze, detectors, agent {capture, report, diff}
 internal/
   analyze/               pipeline: fetch → parse → detect → render; capture-to-disk
   profile/               typed pprof fetcher (HTTP → bytes)

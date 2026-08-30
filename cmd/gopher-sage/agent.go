@@ -19,20 +19,24 @@ const agentWorkflow = `Subcommands for coding agents: deterministic, non-interac
 
 The optimize loop:
 
-  1. capture profiles from the running service under representative load
+  1. capture profiles (cpu, heap and goroutine by default) under representative load
        gopher-sage agent capture --server http://localhost:6060 -o .gopher-sage/before
-  2. report bottlenecks; the "call sites:" lines name YOUR functions to edit
-       gopher-sage agent report --dir .gopher-sage/before
+  2. report bottlenecks; the "call sites:" lines name YOUR functions to edit,
+     and the top table often holds wins no detector covers
+       gopher-sage agent report --dir .gopher-sage/before --top 15
   3. apply each finding's suggestion to its call sites, rebuild, RESTART the
      service (heap alloc counters are cumulative per process), same load again
-  4. re-capture and compare the two reports yourself
+  4. re-capture and diff — findings join by their stable detector ID
        gopher-sage agent capture --server http://localhost:6060 -o .gopher-sage/after
-       gopher-sage agent report --dir .gopher-sage/after --json
+       gopher-sage agent diff --before .gopher-sage/before --after .gopher-sage/after
 
-Comparison notes: findings join across runs by their stable detector ID.
-Shares are relative — fixing the top hotspot raises every other share, so
-judge regressions by share AND absolute matched_value together, under
-comparable load. Run "gopher-sage detectors" for the catalog behind the IDs.`
+Reading the diff: labels are mechanical facts, not verdicts. improved/worse
+require share AND absolute value to agree — shares are relative, so fixing
+the top hotspot raises every other share. inconclusive means an alloc_*
+counter rose, which accumulates with process uptime; confirm any suspected
+alloc regression with a fixed-work A/B before reporting it. A rising
+goroutine total is a leak lead even though no detector fires on it. Run
+"gopher-sage detectors" for the catalog behind the IDs.`
 
 // newAgentCmd groups the agent-facing subcommands.
 func newAgentCmd() *cobra.Command {
