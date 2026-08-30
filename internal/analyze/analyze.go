@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -88,6 +90,9 @@ func (o Options) validate() error {
 type Report struct {
 	Server   string          `json:"server,omitempty"`
 	Profiles []ProfileReport `json:"profiles"`
+	// Skipped lists files a lenient run could not analyze (the
+	// reason is logged); always empty in strict mode.
+	Skipped []string `json:"skipped,omitempty"`
 }
 
 // ProfileReport carries the findings for one analyzed profile.
@@ -110,9 +115,14 @@ type ProfileReport struct {
 	// profile carries no duration.
 	DurationNanos int64 `json:"duration_nanos,omitempty"`
 	// Top is the top-N functions by cumulative value, present only
-	// when Options.TopN / FileOptions.TopN is positive.
-	Top      *profanalyze.TopReport `json:"top,omitempty"`
-	Findings []profanalyze.Finding  `json:"findings"`
+	// when Options.TopN / FileOptions.TopN is positive — except for
+	// Summary profiles, which always carry a top table.
+	Top *profanalyze.TopReport `json:"top,omitempty"`
+	// Summary marks a profile outside the detector set (goroutine,
+	// block, mutex, threadcreate), reported as totals plus top
+	// frames only. Findings is empty by construction.
+	Summary  bool                  `json:"summary,omitempty"`
+	Findings []profanalyze.Finding `json:"findings"`
 }
 
 // Run executes the default set of Detectors and organises the report.
@@ -194,6 +204,18 @@ type FileOptions struct {
 	// TopN, when positive, includes the top-N functions (ranked by
 	// cumulative value) alongside each profile's findings.
 	TopN int
+	// Lenient controls handling of profiles outside the detector
+	// set. False (the analyze command): any such file aborts with an
+	// error. True (agent report / agent diff): goroutine, block,
+	// mutex and threadcreate profiles get a summary-only section
+	// (totals plus top frames, no findings), and files that fail to
+	// parse or carry unrecognized sample types are skipped with a
+	// logged warning; the run errors only when nothing at all was
+	// analyzable.
+	Lenient bool
+	// Logger receives skip warnings in lenient mode. Nil falls back
+	// to slog.Default().
+	Logger *slog.Logger
 }
 
 func (o FileOptions) validate() error {
@@ -217,13 +239,25 @@ func RunFiles(opts FileOptions) (Report, error) {
 	if err := opts.validate(); err != nil {
 		return Report{}, err
 	}
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	var rep Report
 	for _, path := range opts.Paths {
 		pr, err := analyzeFile(path, opts)
 		if err != nil {
-			return Report{}, fmt.Errorf("analyze %s: %w", path, err)
+			if !opts.Lenient {
+				return Report{}, fmt.Errorf("analyze %s: %w", path, err)
+			}
+			logger.Warn("skipping profile", "path", path, "reason", err)
+			rep.Skipped = append(rep.Skipped, path)
+			continue
 		}
 		rep.Profiles = append(rep.Profiles, pr)
+	}
+	if len(rep.Profiles) == 0 {
+		return Report{}, fmt.Errorf("analyze: no analyzable profiles among %d file(s)", len(opts.Paths))
 	}
 	return rep, nil
 }
@@ -234,7 +268,7 @@ func analyzeFile(path string, opts FileOptions) (ProfileReport, error) {
 	if err != nil {
 		return ProfileReport{}, err
 	}
-	t, err := profileKind(prof)
+	t, detectable, err := classifyProfile(prof, path)
 	if err != nil {
 		return ProfileReport{}, err
 	}
@@ -243,7 +277,15 @@ func analyzeFile(path string, opts FileOptions) (ProfileReport, error) {
 		return ProfileReport{}, fmt.Errorf("stat profile: %w", err)
 	}
 
-	pr, err := buildProfileReport(prof, int(fi.Size()), opts.MinShare, opts.TopN)
+	var pr ProfileReport
+	switch {
+	case detectable:
+		pr, err = buildProfileReport(prof, int(fi.Size()), opts.MinShare, opts.TopN)
+	case opts.Lenient:
+		pr, err = buildSummaryReport(prof, int(fi.Size()), opts.TopN)
+	default:
+		return ProfileReport{}, errNotDetectable(prof)
+	}
 	if err != nil {
 		return ProfileReport{}, err
 	}
@@ -252,20 +294,76 @@ func analyzeFile(path string, opts FileOptions) (ProfileReport, error) {
 	return pr, nil
 }
 
-// profileKind classifies a parsed profile by the sample types it
-// carries so file analysis does not need the user to declare the
-// kind up front.
-func profileKind(prof *profanalyze.Profile) (profile.Type, error) {
+// classifyProfile maps a parsed profile to its Type and whether the
+// detector set covers it. Content decides for cpu/heap/goroutine;
+// block and mutex profiles carry identical sample types
+// (contentions/delay), so the base filename — which our own capture
+// controls — disambiguates them.
+func classifyProfile(prof *profanalyze.Profile, path string) (t profile.Type, detectable bool, err error) {
 	switch {
 	case prof.HasCPUSamples():
-		return profile.TypeCPU, nil
+		return profile.TypeCPU, true, nil
 	case prof.HasHeapSamples():
-		return profile.TypeHeap, nil
+		return profile.TypeHeap, true, nil
 	}
-	return "", fmt.Errorf(
+	types := prof.AvailableSampleTypes()
+	switch {
+	case slices.Contains(types, "goroutine"):
+		return profile.TypeGoroutine, false, nil
+	case slices.Contains(types, "threadcreate"):
+		return profile.TypeThreadCreate, false, nil
+	case slices.Contains(types, "contentions"):
+		switch base := filepath.Base(path); base {
+		case "block.pb.gz":
+			return profile.TypeBlock, false, nil
+		case "mutex.pb.gz":
+			return profile.TypeMutex, false, nil
+		}
+		return "", false, fmt.Errorf(
+			"contention profile could be block or mutex (their sample types are identical); name the file block.pb.gz or mutex.pb.gz",
+		)
+	}
+	return "", false, errNotDetectable(prof)
+}
+
+// errNotDetectable is the strict-mode error for profiles outside the
+// detector set; its wording is part of the analyze command's
+// documented behavior.
+func errNotDetectable(prof *profanalyze.Profile) error {
+	return fmt.Errorf(
 		"profile carries no CPU or heap sample types (available: %v); the detector set covers %q and %q",
 		prof.AvailableSampleTypes(), profile.TypeCPU, profile.TypeHeap,
 	)
+}
+
+// summaryTopLimit is the top-frames table size for summary profiles
+// when the caller did not ask for a specific TopN.
+const summaryTopLimit = 10
+
+// buildSummaryReport reports a profile the detector set does not
+// cover: totals plus a top-frames-by-flat table, never findings. For
+// a goroutine profile this reads as "goroutines: N" plus the frames
+// holding them — enough to spot a leak without a dedicated detector.
+func buildSummaryReport(prof *profanalyze.Profile, nbytes, topN int) (ProfileReport, error) {
+	if topN <= 0 {
+		topN = summaryTopLimit
+	}
+	top, err := profanalyze.Top(prof, profanalyze.TopOptions{
+		SortBy: profanalyze.SortByFlat,
+		Limit:  topN,
+	})
+	if err != nil {
+		return ProfileReport{}, fmt.Errorf("top report: %w", err)
+	}
+	return ProfileReport{
+		Bytes:         nbytes,
+		SampleTypes:   prof.AvailableSampleTypes(),
+		Totals:        profanalyze.Totals(prof),
+		DurationNanos: prof.Raw.DurationNanos,
+		Top:           &top,
+		Summary:       true,
+		Findings:      []profanalyze.Finding{},
+	}, nil
 }
 
 // buildProfileReport runs the detector set (and, when requested, the

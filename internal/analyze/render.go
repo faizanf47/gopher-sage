@@ -32,6 +32,10 @@ func WriteText(w io.Writer, rep Report) error {
 		)
 		writeTotalsLine(&b, pr)
 		writeTopTable(&b, pr.Top)
+		if pr.Summary {
+			b.WriteString("  no detectors cover this profile type; totals and top frames shown\n")
+			continue
+		}
 		if len(pr.Findings) == 0 {
 			b.WriteString("  no findings above the share threshold\n")
 			continue

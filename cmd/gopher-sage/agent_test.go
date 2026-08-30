@@ -113,6 +113,51 @@ func TestAgent_captureThenReport(t *testing.T) {
 	}
 }
 
+// TestAgent_reportMixedDir is the regression test for the field-test
+// trap: a goroutine profile sitting next to cpu/heap captures used to
+// abort the entire report with zero findings emitted.
+func TestAgent_reportMixedDir(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, name := range []string{"cpu.pb.gz", "heap.pb.gz", "goroutine.pb.gz"} {
+		raw, err := os.ReadFile(fixturePath(t, name))
+		if err != nil {
+			t.Fatalf("read fixture %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), raw, 0o644); err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+	}
+
+	stdout, err := execCLI(t, "agent", "report", "--dir", dir)
+	if err != nil {
+		t.Fatalf("agent report on mixed dir: %v", err)
+	}
+	for _, want := range []string{
+		"CPU-", "HEAP-", // detector findings still present
+		"goroutine [", // goroutine summary section
+		"totals: goroutine ",
+		"no detectors cover this profile type",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("mixed-dir report missing %q:\n%s", want, stdout)
+		}
+	}
+
+	stdout, err = execCLI(t, "agent", "report", "--dir", dir, "--json")
+	if err != nil {
+		t.Fatalf("agent report --json: %v", err)
+	}
+	var rep analyze.Report
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatalf("mixed-dir JSON does not decode: %v", err)
+	}
+	if len(rep.Profiles) != 3 {
+		t.Errorf("JSON report has %d profiles, want 3", len(rep.Profiles))
+	}
+}
+
 func TestAgentCapture_json(t *testing.T) {
 	t.Parallel()
 

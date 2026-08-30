@@ -117,12 +117,14 @@ func newAgentReportCmd() *cobra.Command {
 		minShare float64
 		topN     int
 		jsonOut  bool
+		verbose  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Report bottlenecks in captured profiles, with call sites to edit",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			logger := newLogger(verbose)
 			paths, err := resolveProfileArgs(dir, files)
 			if err != nil {
 				return err
@@ -131,6 +133,8 @@ func newAgentReportCmd() *cobra.Command {
 				Paths:    paths,
 				MinShare: minShare,
 				TopN:     topN,
+				Lenient:  true,
+				Logger:   logger,
 			})
 			if err != nil {
 				return err
@@ -143,6 +147,7 @@ func newAgentReportCmd() *cobra.Command {
 	cmd.Flags().Float64Var(&minShare, "min-share", 0, "drop findings below this share-of-profile percent")
 	cmd.Flags().IntVar(&topN, "top", 0, "include the top-N functions by cumulative value (0 disables)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the report as JSON instead of text")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose logging")
 	cmd.MarkFlagsOneRequired("dir", "file")
 	cmd.MarkFlagsMutuallyExclusive("dir", "file")
 	return cmd

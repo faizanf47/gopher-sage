@@ -137,6 +137,102 @@ func TestRunFiles_errors(t *testing.T) {
 	}
 }
 
+// realFixture returns the path of a captured profile fixture,
+// skipping the test when it is absent from the checkout.
+func realFixture(t *testing.T, name string) string {
+	t.Helper()
+	p := filepath.Join("..", "..", "fixtures", "profiles", name)
+	if _, err := os.Stat(p); err != nil {
+		t.Skipf("profile fixture %s is not present; skipping", p)
+	}
+	return p
+}
+
+func TestRunFiles_lenient(t *testing.T) {
+	t.Parallel()
+
+	cpuPath := writeProfileFile(t, "cpu.pb.gz", marshalProfile(t, heavyJSONCPUProfile()))
+	goroutinePath := realFixture(t, "goroutine.pb.gz")
+	garbage := writeProfileFile(t, "garbage.pb.gz", []byte("not a profile"))
+	paths := []string{cpuPath, goroutinePath, garbage}
+
+	// Strict mode aborts on the first unusable file.
+	if _, err := RunFiles(FileOptions{Paths: paths}); err == nil {
+		t.Fatal("strict RunFiles: want error, got nil")
+	}
+
+	rep, err := RunFiles(FileOptions{Paths: paths, Lenient: true})
+	if err != nil {
+		t.Fatalf("lenient RunFiles: %v", err)
+	}
+	if len(rep.Profiles) != 2 {
+		t.Fatalf("len(Profiles) = %d, want 2 (cpu + goroutine summary)", len(rep.Profiles))
+	}
+	if !reflect.DeepEqual(rep.Skipped, []string{garbage}) {
+		t.Errorf("Skipped = %v, want just the garbage file", rep.Skipped)
+	}
+
+	g := rep.Profiles[1]
+	if g.Type != profile.TypeGoroutine || !g.Summary {
+		t.Errorf("Profiles[1] = type %q summary %v, want goroutine summary", g.Type, g.Summary)
+	}
+	if len(g.Findings) != 0 {
+		t.Errorf("summary profile carries findings: %+v", g.Findings)
+	}
+	if g.Top == nil || len(g.Top.Entries) == 0 {
+		t.Error("summary profile is missing its top-frames table")
+	}
+	if len(g.Totals) == 0 || g.Totals[0].SampleType != "goroutine" || g.Totals[0].Total <= 0 {
+		t.Errorf("summary totals = %+v, want a positive goroutine count first", g.Totals)
+	}
+}
+
+func TestRunFiles_lenientAllUnusable(t *testing.T) {
+	t.Parallel()
+
+	garbage := writeProfileFile(t, "garbage.pb.gz", []byte("junk"))
+	_, err := RunFiles(FileOptions{Paths: []string{garbage}, Lenient: true})
+	if err == nil || !strings.Contains(err.Error(), "no analyzable profiles") {
+		t.Errorf("err = %v, want 'no analyzable profiles'", err)
+	}
+}
+
+func TestClassifyProfile_contentionByFilename(t *testing.T) {
+	t.Parallel()
+
+	src := realFixture(t, "block.pb.gz")
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read block fixture: %v", err)
+	}
+	prof, err := profanalyze.ParseBytes(src, raw)
+	if err != nil {
+		t.Fatalf("parse block fixture: %v", err)
+	}
+
+	tests := []struct {
+		path    string
+		want    profile.Type
+		wantErr bool
+	}{
+		{path: "captures/block.pb.gz", want: profile.TypeBlock},
+		{path: "captures/mutex.pb.gz", want: profile.TypeMutex},
+		{path: "captures/renamed.pb.gz", wantErr: true},
+	}
+	for _, tt := range tests {
+		got, detectable, err := classifyProfile(prof, tt.path)
+		if tt.wantErr {
+			if err == nil || !strings.Contains(err.Error(), "block or mutex") {
+				t.Errorf("classify(%s): err = %v, want block-or-mutex hint", tt.path, err)
+			}
+			continue
+		}
+		if err != nil || detectable || got != tt.want {
+			t.Errorf("classify(%s) = (%q, %v, %v), want (%q, false, nil)", tt.path, got, detectable, err, tt.want)
+		}
+	}
+}
+
 func TestWriteText_fileReportWithTop(t *testing.T) {
 	t.Parallel()
 
